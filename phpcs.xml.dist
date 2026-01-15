@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<ruleset 
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+    name="PHP_CodeSniffer" 
+    xsi:noNamespaceSchemaLocation="phpcs.xsd"
+    >
+    <description>The Omega coding standard. PSR12 + Types</description>
+    <arg name="cache" value="cache/phpcs/phpcs.json" />
+    <arg name="colors" />
+    <arg value="p" />
+
+    <rule ref="PSR12">
+        <exclude name="PSR1.Methods.CamelCapsMethodName.NotCamelCaps" />
+        <exclude name="PSR12.Files.FileHeader.IncorrectGrouping" />
+    </rule>
+</ruleset>

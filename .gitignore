@@ -1,0 +1,7 @@
+vendor/
+composer.lock
+package-lock.json
+phpcs.xml
+phpdoc.xml
+phpstan.neon
+phpunit.xml

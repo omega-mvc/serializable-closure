@@ -1,0 +1,40 @@
+{
+  "name": "omega-mvc/serializable-closure",
+  "type": "package",
+  "version": "2.0.0",
+  "description": "Serializable Closure is a PHP package that allows closures to be serialized and stored, enabling their safe use in persistent storage or across requests.",
+  "keywords": [
+    "php",
+    "php8",
+    "serializable",
+    "closures",
+    "serializable-closure",
+    "data storage",
+    "persistent storage"
+  ],
+  "homepage": "https://omega-mvc.github.io",
+  "license": "GPL-3.0",
+  "authors": [
+    {
+      "name": "Adriano Giovannini",
+      "email": "agisoftt@gmail.com",
+      "homepage": "https://omega-mvc.github.io",
+      "role": "Developer"
+    }
+  ],
+  "require": {
+    "php": "^8.4"
+  },
+  "require-dev": {
+    "squizlabs/php_codesniffer": "^3.11"
+  },
+  "autoload": {
+    "psr-4": {
+      "Omega\\SerializableClosure\\": "src/Omega/SerializableClosure/"
+    }
+  },
+  "scripts": {
+    "phpcs": "XDEBUG_MODE=off php vendor/bin/phpcs src/"
+  },
+  "minimum-stability": "stable"
+}
