@@ -5,12 +5,11 @@
   "description": "Serializable Closure is a PHP package that allows closures to be serialized and stored, enabling their safe use in persistent storage or across requests.",
   "keywords": [
     "php",
-    "php8",
-    "serializable",
+    "serialization",
+    "functional-programming",
+    "php-library",
     "closures",
-    "serializable-closure",
-    "data storage",
-    "persistent storage"
+    "php-lib"
   ],
   "homepage": "https://omega-mvc.github.io",
   "license": "GPL-3.0",
