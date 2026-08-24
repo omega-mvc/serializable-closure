@@ -18,9 +18,9 @@
 
 <p align="center">
     <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/tests.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/tests.yml/badge.svg?label=Pest" alt="Pest"></a>
-    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/coding-standard.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/coding-standard.yml/badge.svg?label=PHPCS" alt="PHPCS"></a>
-    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/static-analysis.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/static-analysis.yml/badge.svg?label=PHPStan" alt="PHPStan"></a>
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml/badge.svg?label=Pest" alt="Pest"></a>
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml/badge.svg?label=PHPCS" alt="PHPCS"></a>
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml/badge.svg?label=PHPStan" alt="PHPStan"></a>
 </p>
 
 # Omega - Serializable Closure
