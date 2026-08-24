@@ -14,6 +14,7 @@
 declare(strict_types=1);
 
 use Omega\SerializableClosure\Exception\MissingSecretKeyException;
+use Omega\SerializableClosure\Serializers\Native;
 use Omega\SerializableClosure\Serializers\Signed;
 use Omega\SerializableClosure\SerializableClosure;
 use Omega\SerializableClosure\Signers\Hmac;
@@ -100,4 +101,49 @@ test('it round-trips a signed closure and verifies the signature', function () {
     }
 
     expect($restored(4))->toBe(12);
+});
+
+test('loading a signed payload without a key is rejected fail-closed', function () {
+    SerializableClosure::setSecretKey('k');
+    $payload = serialize(new SerializableClosure(fn (): int => 5));
+    SerializableClosure::setSecretKey(null);
+
+    expect(fn () => unserialize($payload))->toThrow(MissingSecretKeyException::class);
+});
+
+test('its payload carries only the serializable component', function () {
+    $data = (new SerializableClosure(fn (): int => 1))->__serialize();
+
+    expect(array_keys($data))->toBe(['serializable']);
+});
+
+test('the unsigned factory builds an unsigned wrapper around the closure', function () {
+    $closure = fn (): int => 7;
+
+    $unsigned = SerializableClosure::unsigned($closure);
+
+    expect($unsigned)->toBeInstanceOf(UnsignedSerializableClosure::class)
+        ->and($unsigned->getClosure())->toBe($closure)
+        ->and($unsigned())->toBe(7);
+});
+
+test('it forwards arguments to the underlying serializer when invoked', function () {
+    $serializable = new SerializableClosure(fn (int $a, int $b): int => $a - $b);
+
+    expect($serializable(10, 4))->toBe(6)
+        ->and($serializable->getClosure())->toBeInstanceOf(Closure::class);
+});
+
+test('extension hooks can be set and cleared', function () {
+    SerializableClosure::transformUseVariablesUsing(fn (array $vars): array => $vars);
+    SerializableClosure::resolveUseVariablesUsing(fn (array $vars): array => $vars);
+
+    expect(Native::$transformUseVariables)->toBeInstanceOf(Closure::class)
+        ->and(Native::$resolveUseVariables)->toBeInstanceOf(Closure::class);
+
+    SerializableClosure::transformUseVariablesUsing(null);
+    SerializableClosure::resolveUseVariablesUsing(null);
+
+    expect(Native::$transformUseVariables)->toBeNull()
+        ->and(Native::$resolveUseVariables)->toBeNull();
 });

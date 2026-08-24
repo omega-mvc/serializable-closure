@@ -123,12 +123,12 @@ class ClosureStream
     /**
      * Change stream options.
      *
-     * @param int $option Holds the option to set.
-     * @param int $arg1   Holds the first argument.
-     * @param int $arg2   Holds the second argument.
+     * @param int      $option Holds the option to set.
+     * @param int      $arg1   Holds the first argument.
+     * @param int|null $arg2   Holds the second argument, unused by this wrapper.
      * @return bool Returns true on success or false on failure.
      */
-    public function stream_set_option(int $option, int $arg1, int $arg2): bool
+    public function stream_set_option(int $option, int $arg1, ?int $arg2 = null): bool
     {
         return false;
     }
@@ -141,11 +141,7 @@ class ClosureStream
      */
     public function stream_stat(): array|bool
     {
-        $stat = stat(__FILE__);
-
-        if ($stat === false) {
-            return false;
-        }
+        $stat = stat(__FILE__) ?: [];
 
         $stat[7] = $stat['size'] = $this->length ?? 0;
 
@@ -162,11 +158,7 @@ class ClosureStream
      */
     public function url_stat(string $path, int $flags): array|bool
     {
-        $stat = stat(__FILE__);
-
-        if ($stat === false) {
-            return false;
-        }
+        $stat = stat(__FILE__) ?: [];
 
         $stat[7] = $stat['size'] = $this->length ?? 0;
 
