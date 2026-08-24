@@ -33,7 +33,6 @@ Omega - Serializable Closure is a powerful and flexible library designed to prov
 
 *   **Native Serialization:** Efficiently serializes closures using PHP's native mechanisms when cryptographic signatures are not required.
 *   **Signed Serialization (HMAC):** Implements secure serialization by generating and verifying HMAC (Hash-based Message Authentication Code) signatures for closure data. This ensures the integrity and authenticity of serialized closures, preventing tampering.
-*   **Anonymous Class Support:** Seamlessly handles the serialization and deserialization of anonymous classes used within closures.
 *   **PHP 8.4+ Modern Features:** Fully embraces modern PHP features including:
     *   **Readonly Properties:** Leverages readonly properties where appropriate for improved immutability and thread safety.
     *   **Native Types:** Employs strict native type hints for enhanced code clarity and robustness.
@@ -196,7 +195,7 @@ This class extends PHP's native `ReflectionFunction` and provides advanced intro
 *   **Extracting Closure Code:** It parses the closure's source code to identify and extract key components.
 *   **Identifying `use` Variables:** It precisely determines which variables are captured by the closure's `use` keyword, enabling their proper serialization.
 *   **Detecting Binding Requirements:** It can ascertain if the closure relies on `$this` (bound object) or a specific scope, which is critical for correct `bindTo` operations.
-*   **Handling Static Variables and Anonymous Classes:** It provides mechanisms to serialize and deserialize complex structures that might be used within closures.
+*   **Handling Static Variables:** It provides mechanisms to serialize static variables that might be used within closures.
 *   **Code Parsing:** It leverages PHP's tokenizer (`token_get_all`) to analyze the closure's syntax, understand its structure, and extract metadata without directly executing the code.
 
 These components work in concert to provide a robust, secure, and flexible solution for serializing PHP closures, ensuring their integrity and faithful reconstruction.
