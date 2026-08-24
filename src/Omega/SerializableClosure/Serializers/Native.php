@@ -164,7 +164,7 @@ final class Native implements SerializableInterface
     public static function applyTransformHook(array $uses): array
     {
         if (static::$transformUseVariables instanceof Closure) {
-            return self::withStringKeys(call_user_func(static::$transformUseVariables, $uses));
+            return self::withStringKeys((static::$transformUseVariables)($uses));
         }
 
         return $uses;
@@ -179,7 +179,7 @@ final class Native implements SerializableInterface
     public static function applyResolveHook(array $uses): array
     {
         if (static::$resolveUseVariables instanceof Closure) {
-            return self::withStringKeys(call_user_func(static::$resolveUseVariables, $uses));
+            return self::withStringKeys((static::$resolveUseVariables)($uses));
         }
 
         return $uses;

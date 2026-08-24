@@ -20,6 +20,7 @@ use PhpToken;
 use ReflectionException;
 use ReflectionFunction;
 
+use function array_find;
 use function array_intersect_key;
 use function array_keys;
 use function array_map;
@@ -36,7 +37,6 @@ use function function_exists;
 use function implode;
 use function in_array;
 use function is_array;
-use function is_null;
 use function is_string;
 use function sprintf;
 use function str_contains;
@@ -639,16 +639,15 @@ class ReflectionClosure extends ReflectionFunction
 
                                 $_trait = '';
 
-                                foreach ($structures as &$struct) {
-                                    if (
-                                        $struct['type'] === 'trait'
+                                $matchingTrait = array_find(
+                                    $structures,
+                                    fn (array $struct): bool => $struct['type'] === 'trait'
                                         && $struct['start'] <= $startLine
                                         && $struct['end'] >= $endLine
-                                    ) {
-                                        $_trait = ($ns == '' ? '' : $ns . '\\') . $struct['name'];
+                                );
 
-                                        break;
-                                    }
+                                if ($matchingTrait !== null) {
+                                    $_trait = ($ns == '' ? '' : $ns . '\\') . $matchingTrait['name'];
                                 }
 
                                 $_trait = var_export($_trait, true);
@@ -1393,7 +1392,7 @@ class ReflectionClosure extends ReflectionFunction
         $ns = $this->getNamespaceName();
 
         // First class callable...
-        if ($this->getName() !== '{closure}' && empty($ns) && ! is_null($this->getClosureScopeClass())) {
+        if ($this->getName() !== '{closure}' && empty($ns) && $this->getClosureScopeClass() !== null) {
             $ns = $this->getClosureScopeClass()->getNamespaceName();
         }
 
