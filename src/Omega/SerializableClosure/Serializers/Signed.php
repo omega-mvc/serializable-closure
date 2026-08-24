@@ -86,7 +86,7 @@ class Signed implements SerializableInterface
     /**
      * Get the serializable representation of the closure.
      *
-     * @return array Return the serialized representation of the closure.
+     * @return array{serializable: string, hash: string} Return the serialized representation of the closure.
      * @throws MissingSecretKeyException If no signer is specified.
      */
     public function __serialize(): array
@@ -103,18 +103,26 @@ class Signed implements SerializableInterface
     /**
      * Restore the closure after serialization.
      *
-     * @param array $signature Holds the signature to verify and unserialize.
+     * @param array{serializable: string, hash: string} $signature Holds the signature to verify and unserialize.
      * @return void
+     * @throws MissingSecretKeyException If no signer is set when loading signed data.
      * @throws InvalidSignatureException If the signature is invalid.
      */
     public function __unserialize(array $signature): void
     {
-        if (static::$signer && ! static::$signer->verify($signature)) {
+        if (! static::$signer instanceof SignerInterface) {
+            throw new MissingSecretKeyException();
+        }
+
+        if (! static::$signer->verify($signature)) {
             throw new InvalidSignatureException();
         }
 
-        /** @var SerializableInterface */
         $serializable = unserialize($signature['serializable']);
+
+        if (! $serializable instanceof SerializableInterface) {
+            throw new InvalidSignatureException();
+        }
 
         $this->closure = $serializable->getClosure();
     }

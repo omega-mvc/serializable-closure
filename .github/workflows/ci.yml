@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Pest
+    uses: ./.github/workflows/tests.yml
+
+  coding-standard:
+    name: PHPCS
+    uses: ./.github/workflows/coding-standard.yml
+
+  static-analysis:
+    name: PHPStan
+    uses: ./.github/workflows/static-analysis.yml

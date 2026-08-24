@@ -11,7 +11,7 @@
     "php-lib"
   ],
   "homepage": "https://omega-mvc.github.io",
-  "license": "GPL-3.0",
+  "license": "GPL-3.0-or-later",
   "authors": [
     {
       "name": "Adriano Giovannini",
@@ -29,12 +29,29 @@
     }
   },
   "scripts": {
-    "phpcs": "XDEBUG_MODE=off php vendor/bin/phpcs src/"
+    "phpcs": "XDEBUG_MODE=off php vendor/bin/phpcs",
+    "phpstan": "XDEBUG_MODE=off php vendor/bin/phpstan analyse",
+    "test": "XDEBUG_MODE=off php vendor/bin/pest"
   },
   "minimum-stability": "stable",
   "require-dev": {
     "squizlabs/php_codesniffer": "^4.0",
     "phpstan/phpstan": "^2.2",
-    "phpunit/phpunit": "^13.3"
+    "pestphp/pest": "^5.1"
+  },
+  "config": {
+    "allow-plugins": {
+      "pestphp/pest-plugin": true
+    }
+  },
+  "scripts-descriptions": {
+    "phpcs": "Run PSR-12 checks over src/ and tests/",
+    "phpstan": "Run PHPStan level 10 static analysis",
+    "test": "Run the Pest test suite"
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Tests\\": "tests/"
+    }
   }
 }

@@ -52,6 +52,8 @@ class Hmac implements SignerInterface
 
     /**
      * {@inheritdoc}
+     *
+     * @return array{serializable: string, hash: string} Return an array containing the signature.
      */
     public function sign(string $serialized): array
     {
@@ -63,6 +65,8 @@ class Hmac implements SignerInterface
 
     /**
      * {@inheritdoc}
+     *
+     * @param array{serializable: string, hash: string} $signature Holds the signature to be verified.
      */
     public function verify(array $signature): bool
     {

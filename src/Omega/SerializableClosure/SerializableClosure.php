@@ -23,6 +23,7 @@ use Omega\SerializableClosure\Serializers\Native;
 use Omega\SerializableClosure\Serializers\Signed;
 use Omega\SerializableClosure\Serializers\SerializableInterface;
 use Omega\SerializableClosure\Signers\Hmac;
+use stdClass;
 
 use function call_user_func_array;
 use function func_get_args;
@@ -137,7 +138,8 @@ class SerializableClosure
     /**
      * Get the serializable representation of the closure.
      *
-     * @return array Return an array of the serialized representation of the closure.
+     * @return array{serializable: SerializableInterface, uses: array<string, mixed>}
+     *               Return an array of the serialized representation of the closure.
      * @throws ReflectionException
      */
     public function __serialize(): array
@@ -146,14 +148,26 @@ class SerializableClosure
 
         // Check if the closure contains an anonymous class
         $reflectionFunction = new ReflectionFunction($closure);
-        $uses               = $reflectionFunction->getStaticVariables();
+        $uses               = [];
 
-        foreach ($uses as $variable => $value) {
+        foreach ($reflectionFunction->getStaticVariables() as $variable => $value) {
+            if (! is_string($variable)) {
+                continue;
+            }
+
             if (is_object($value) && $this->isAnonymousClass($value)) {
                 // Handle anonymous class serialization
-                $uses[$variable] = $this->serializeAnonymousClass($value);
+                $value = $this->serializeAnonymousClass($value);
             }
+
+            $uses[$variable] = $value;
         }
+
+        self::wrapCapturedClosures($uses);
+
+        // Keep the captured-variables layer aligned with the serializer's own
+        // transformation hook so sensitive values cannot leak in plaintext.
+        $uses = Native::applyTransformHook($uses);
 
         return [
             'serializable' => $this->serializable,
@@ -162,9 +176,57 @@ class SerializableClosure
     }
 
     /**
+     * Wraps any Closure found within the captured variables so that it can
+     * survive serialization instead of leaking as a raw Closure.
+     *
+     * @param array<string, mixed> $uses Holds the captured variables to scan and rewrite.
+     * @return void
+     */
+    private static function wrapCapturedClosures(array &$uses): void
+    {
+        foreach ($uses as &$value) {
+            self::wrapCapturedValue($value);
+        }
+    }
+
+    /**
+     * Rewrites a single captured value, recursing through arrays and stdClass.
+     *
+     * @param mixed $value Holds the value to scan and rewrite.
+     * @return void
+     */
+    private static function wrapCapturedValue(mixed &$value): void
+    {
+        if ($value instanceof Closure) {
+            $value = new Native($value);
+
+            return;
+        }
+
+        if (is_array($value)) {
+            foreach ($value as &$item) {
+                self::wrapCapturedValue($item);
+            }
+
+            return;
+        }
+
+        if ($value instanceof stdClass) {
+            foreach (array_keys((array) $value) as $key) {
+                $item = &$value->{$key};
+
+                self::wrapCapturedValue($item);
+
+                unset($item);
+            }
+        }
+    }
+
+    /**
      * Restore the closure after serialization.
      *
-     * @param array $data Holds an array of the closure data for restore.
+     * @param array{serializable: SerializableInterface, uses: array<string, mixed>} $data
+     *               Holds an array of the closure data for restore.
      * @return void
      * @throws ReflectionException
      */
@@ -173,10 +235,10 @@ class SerializableClosure
         $this->serializable = $data['serializable'];
 
         // Handle anonymous class deserialization
-        $uses = $data['uses'];
+        $uses = Native::applyResolveHook($data['uses']);
 
         foreach ($uses as $variable => $value) {
-            if (is_array($value) && $value['__anonymous_class'] ?? false) {
+            if (is_array($value) && ($value['__anonymous_class'] ?? false)) {
                 // Restore the anonymous class instance
                 $uses[$variable] = $this->unserializeAnonymousClass($value);
             }
@@ -200,8 +262,9 @@ class SerializableClosure
     /**
      * Serialize a anonymous class.
      *
-     * @param object $object Holds the anonymous class to serialize.
-     * @return array Return an array of serialize anonymous class.
+     * @param object $object Holds the object to serialize.
+     * @return array{__anonymous_class: bool, __class_name: string, __class_data: string}
+     *                Return an array of serialize anonymous class.
      */
     protected function serializeAnonymousClass(object $object): array
     {
@@ -216,19 +279,32 @@ class SerializableClosure
     /**
      * Unserialize an anonymous class.
      *
-     * @param array $data Holds an array of anonymous class to unserialize.
+     * @param array<array-key, mixed> $data Holds an array of anonymous class to unserialize.
      * @return object Return the unserialize object class for class.
+     * @throws ReflectionException If the payload cannot be restored to an object.
      */
     protected function unserializeAnonymousClass(array $data): object
     {
+        $classData = $data['__class_data'] ?? null;
+
+        if (! is_string($classData)) {
+            throw new ReflectionException('Invalid anonymous class payload: missing __class_data.');
+        }
+
         // Customize the deserialization of the anonymous class as needed.
-        return unserialize($data['__class_data']);
+        $object = unserialize($classData);
+
+        if (! is_object($object)) {
+            throw new ReflectionException('Invalid anonymous class payload: unserializable data.');
+        }
+
+        return $object;
     }
 
     /**
      * Set the static variables of the closure.
      *
-     * @param array $uses Holds an array of use variables associated with the closure.
+     * @param array<string, mixed> $uses Holds an array of use variables associated with the closure.
      * @return void
      * @throws ReflectionException
      */
@@ -239,7 +315,7 @@ class SerializableClosure
         // Use ReflectionFunction to set the static variables.
         $closureThis = $reflectionFunction->getClosureThis();
 
-        if ($closureThis !== null) {
+        if ($closureThis !== null && property_exists($closureThis, 'uses')) {
             $closureThis->uses = $uses;
         }
     }

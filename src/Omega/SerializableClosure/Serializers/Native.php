@@ -19,6 +19,7 @@ use Closure;
 use DateTimeInterface;
 use ReflectionException;
 use ReflectionObject;
+use ReflectionProperty;
 use stdClass;
 use UnitEnum;
 use Omega\SerializableClosure\SerializableClosure;
@@ -49,8 +50,11 @@ use function spl_object_hash;
  * @copyright   Copyright (c) 2024 - 2025 Adriano Giovannini
  * @license     https://www.gnu.org/licenses/gpl-3.0-standalone.html     GPL V3.0+
  * @version     1.0.0
+ *
+ * @phpstan-type BindingTarget Native|SerializableClosure|UnsignedSerializableClosure
+ * @phpstan-type DeferredBinding array{instance: object, property: ReflectionProperty, object: BindingTarget}
  */
-class Native implements SerializableInterface
+final class Native implements SerializableInterface
 {
     /**
      * Transform the use variables before serialization.
@@ -67,11 +71,12 @@ class Native implements SerializableInterface
     public static ?Closure $resolveUseVariables = null;
 
     /**
-     * The closure to be serialized/unserialize.
+     * The closure to be serialized/unserialize. Null while the closure is
+     * being reconstructed during unserialization.
      *
-     * @var Closure Holds the closure to be serialized/unserialize.
+     * @var Closure|null Holds the closure to be serialized/unserialize or null.
      */
-    protected Closure $closure;
+    protected ?Closure $closure = null;
 
     /**
      * The closure's reflection.
@@ -81,11 +86,12 @@ class Native implements SerializableInterface
     protected ?ReflectionClosure $reflector = null;
 
     /**
-     * The closure's code.
+     * The closure's code. During unserialization this is the raw payload array;
+     * once restored it holds the closure's function source, or null.
      *
-     * @var array|string|null Holds the closure code or null.
+     * @var array<string, mixed>|string|null Holds the closure code or null.
      */
-    protected array|string|null $code;
+    protected array|string|null $code = null;
 
     /**
      * The closure's reference.
@@ -124,7 +130,60 @@ class Native implements SerializableInterface
      */
     public function __invoke(): mixed
     {
-        return call_user_func_array($this->closure, func_get_args());
+        return call_user_func_array($this->getClosure(), func_get_args());
+    }
+
+    /**
+     * Filters a value down to its string-keyed entries, for use-variable maps.
+     *
+     * @param mixed $values Holds the value to filter.
+     * @return array<string, mixed> Return an array containing only string-keyed entries.
+     */
+    private static function withStringKeys(mixed $values): array
+    {
+        $filtered = [];
+
+        if (! is_iterable($values)) {
+            return $filtered;
+        }
+
+        foreach ($values as $key => $value) {
+            if (is_string($key)) {
+                $filtered[$key] = $value;
+            }
+        }
+
+        return $filtered;
+    }
+
+    /**
+     * Applies the registered transformation hook to the given use variables.
+     *
+     * @param array<string, mixed> $uses Holds the raw use variables.
+     * @return array<string, mixed> Return the transformed use variables.
+     */
+    public static function applyTransformHook(array $uses): array
+    {
+        if (static::$transformUseVariables instanceof Closure) {
+            return self::withStringKeys(call_user_func(static::$transformUseVariables, $uses));
+        }
+
+        return $uses;
+    }
+
+    /**
+     * Applies the registered resolution hook to the given use variables.
+     *
+     * @param array<string, mixed> $uses Holds the transformed use variables.
+     * @return array<string, mixed> Return the resolved use variables.
+     */
+    public static function applyResolveHook(array $uses): array
+    {
+        if (static::$resolveUseVariables instanceof Closure) {
+            return self::withStringKeys(call_user_func(static::$resolveUseVariables, $uses));
+        }
+
+        return $uses;
     }
 
     /**
@@ -132,13 +191,23 @@ class Native implements SerializableInterface
      */
     public function getClosure(): Closure
     {
+        if (! $this->closure instanceof Closure) {
+            throw new ReflectionException('The closure has not been constructed or reconstructed yet.');
+        }
+
         return $this->closure;
     }
 
     /**
      * Get the serializable representation of the closure.
      *
-     * @return array Return an array of serializable representation of the closure.
+     * @return array{
+     *     use: array<string, mixed>,
+     *     function: string,
+     *     scope: class-string|null,
+     *     this: object|null,
+     *     self: string
+     * } Return an array of serializable representation of the closure.
      * @throws ReflectionException
      */
     public function __serialize(): array
@@ -148,34 +217,43 @@ class Native implements SerializableInterface
             ++$this->scope->toSerialize;
         }
 
-        ++$this->scope->serializations;
+        $closureScope = $this->scope;
 
-        $scope     = $object = null;
+        ++$closureScope->serializations;
+
+        $object  = null;
+        $scope   = null;
+        $closure = $this->getClosure();
+
         $reflector = $this->getReflector();
 
         if ($reflector->isBindingRequired()) {
-            $object = $reflector->getClosureThis();
+            $wrappedThis = $reflector->getClosureThis();
 
-            static::wrapClosures($object, $this->scope);
+            static::wrapClosures($wrappedThis, $closureScope);
+
+            $object = is_object($wrappedThis) ? $wrappedThis : null;
         }
 
-        if ($scope = $reflector->getClosureScopeClass()) {
-            $scope = $scope->name;
+        if ($scopeClass = $reflector->getClosureScopeClass()) {
+            $scope = $scopeClass->name;
         }
 
-        $this->reference = spl_object_hash($this->closure);
+        $this->reference = spl_object_hash($closure);
 
-        $this->scope[$this->closure] = $this;
+        $closureScope[$closure] = $this;
 
         $use = $reflector->getUseVariables();
 
-        if (static::$transformUseVariables) {
-            $use = call_user_func(static::$transformUseVariables, $reflector->getUseVariables());
-        }
+        $use = static::applyTransformHook($use);
 
         $code = $reflector->getCode();
 
-        $this->mapByReference($use);
+        $mappedUse = $use;
+
+        $this->mapByReference($mappedUse);
+
+        $use = self::withStringKeys($mappedUse);
 
         $data = [
             'use'      => $use,
@@ -185,7 +263,7 @@ class Native implements SerializableInterface
             'self'     => $this->reference,
         ];
 
-        if (! --$this->scope->serializations && ! --$this->scope->toSerialize) {
+        if (! --$closureScope->serializations && ! --$closureScope->toSerialize) {
             $this->scope = null;
         }
 
@@ -195,47 +273,67 @@ class Native implements SerializableInterface
     /**
      * Restore the closure after serialization.
      *
-     * @param array $data
+     * @param array<string, mixed> $data Holds the closure data for restore.
      * @return void
+     * @throws ReflectionException If the closure cannot be reconstructed from its code.
      */
     public function __unserialize(array $data): void
     {
         ClosureStream::register();
 
-        $this->code = $data;
-        unset($data);
+        $use      = [];
+        $function = is_string($data['function'] ?? null) ? $data['function'] : '';
+        $scope    = null;
+        $bound    = is_object($data['this'] ?? null) ? $data['this'] : null;
+        $selfHash = is_string($data['self'] ?? null) ? $data['self'] : '';
 
-        $this->code['objects'] = [];
+        if (is_array($data['use'] ?? null)) {
+            foreach ($data['use'] as $varName => $varValue) {
+                if (is_string($varName)) {
+                    $use[$varName] = $varValue;
+                }
+            }
+        }
 
-        if ($this->code['use']) {
+        if (is_string($data['scope'] ?? null) && (class_exists($data['scope']) || interface_exists($data['scope']))) {
+            $scope = $data['scope'];
+        }
+
+        $this->code = $function;
+
+        $deferredObjects = [];
+
+        if ($use !== []) {
             $this->scope = new ClosureScope();
 
-            if (static::$resolveUseVariables) {
-                $this->code['use'] = call_user_func(static::$resolveUseVariables, $this->code['use']);
-            }
+            $use = static::applyResolveHook($use);
 
-            $this->mapPointers($this->code['use']);
+            $this->mapPointers($use, $selfHash, $deferredObjects);
 
-            extract($this->code['use'], EXTR_OVERWRITE | EXTR_REFS);
+
+            extract($use, EXTR_OVERWRITE | EXTR_REFS);
+
 
             $this->scope = null;
         }
 
-        $this->closure = include ClosureStream::STREAM_PROTO . '://' . $this->code['function'];
+        $reconstructed = include ClosureStream::STREAM_PROTO . '://' . $function;
 
-        if ($this->code['this'] === $this) {
-            $this->code['this'] = null;
+
+        if (! $reconstructed instanceof Closure) {
+            throw new ReflectionException('Failed to reconstruct the closure from its serialized code.');
         }
 
-        $this->closure = $this->closure->bindTo($this->code['this'], $this->code['scope']);
-
-        if (! empty($this->code['objects'])) {
-            foreach ($this->code['objects'] as $item) {
-                $item['property']->setValue($item['instance'], $item['object']->getClosure());
-            }
+        if ($bound === $this) {
+            $bound = null;
         }
 
-        $this->code = $this->code['function'];
+        $this->closure = $reconstructed->bindTo($bound, $scope);
+
+
+        foreach ($deferredObjects as $item) {
+            $item['property']->setValue($item['instance'], $item['object']->getClosure());
+        }
     }
 
     /**
@@ -272,13 +370,18 @@ class Native implements SerializableInterface
                 return;
             }
 
-            $data = $storage[$data] = clone $data;
+            $clone = clone $data;
 
-            foreach ($data as &$value) {
+            $storage[$data] = $clone;
+            $data           = $clone;
+
+            foreach (array_keys((array) $data) as $key) {
+                $value = &$data->{$key};
+
                 static::wrapClosures($value, $storage);
-            }
 
-            unset($value);
+                unset($value);
+            }
         } elseif (is_object($data) && ! $data instanceof static && ! $data instanceof UnitEnum) {
             if (isset($storage[$data])) {
                 $data = $storage[$data];
@@ -295,7 +398,10 @@ class Native implements SerializableInterface
                 return;
             }
 
-            $storage[$instance] = $data = $reflection->newInstanceWithoutConstructor();
+            $freshInstance = $reflection->newInstanceWithoutConstructor();
+
+            $storage[$instance] = $freshInstance;
+            $data               = $freshInstance;
 
             do {
                 if (! $reflection->isUserDefined()) {
@@ -334,6 +440,10 @@ class Native implements SerializableInterface
     public function getReflector(): ReflectionClosure
     {
         if ($this->reflector === null) {
+            if (! $this->closure instanceof Closure) {
+                throw new ReflectionException('No closure available to reflect.');
+            }
+
             $this->code      = null;
             $this->reflector = new ReflectionClosure($this->closure);
         }
@@ -342,60 +452,102 @@ class Native implements SerializableInterface
     }
 
     /**
-     * Internal method used to map closure pointers.
+     * Maps SelfReference pointers inside the use variables onto the closure
+     * being reconstructed.
      *
-     * @param mixed $data Holds the data to map pointers.
+     * @param array<array-key, mixed> $data
+     *                                          Holds the use variables to map pointers for.
+     * @param string              $selfHash        Holds the serialized self-reference hash.
+     * @param array<int|string, DeferredBinding> $deferredObjects
+     *                                          Holds the deferred object bindings discovered while mapping.
      * @return void
      */
-    protected function mapPointers(mixed &$data): void
+    protected function mapPointers(array &$data, string $selfHash, array &$deferredObjects): void
     {
         $scope = $this->scope;
 
-        if ($data instanceof static) {
-            $data = &$data->closure;
-        } elseif (is_array($data)) {
-            if (isset($data[self::ARRAY_RECURSIVE_KEY])) {
+        if (! $scope instanceof ClosureScope) {
+            return;
+        }
+
+        foreach ($data as $key => &$value) {
+            if ($key === self::ARRAY_RECURSIVE_KEY) {
+                continue;
+            } elseif ($value instanceof static) {
+                $data[$key] = &$value->closure;
+
+                continue;
+            } elseif ($value instanceof SelfReference && $value->hash === $selfHash) {
+                $data[$key] = &$this->closure;
+
+                continue;
+            }
+
+            $this->mapPointersValue($data[$key], $selfHash, $deferredObjects, $scope);
+        }
+    }
+
+    /**
+     * Internal walker mapping pointer slots for a single use-variable value.
+     *
+     * @param mixed             $value           Holds the value to map pointers for.
+     * @param string            $selfHash        Holds the serialized self-reference hash.
+     * @param array<int|string, DeferredBinding> $deferredObjects
+     *                                           Holds the deferred object bindings discovered while mapping.
+     * @param ClosureScope      $scope           Holds the current closure scope.
+     * @return void
+     */
+    private function mapPointersValue(
+        mixed &$value,
+        string $selfHash,
+        array &$deferredObjects,
+        ClosureScope $scope
+    ): void {
+        if (is_array($value)) {
+            if (isset($value[self::ARRAY_RECURSIVE_KEY])) {
                 return;
             }
 
-            $data[self::ARRAY_RECURSIVE_KEY] = true;
+            $value[self::ARRAY_RECURSIVE_KEY] = true;
 
-            foreach ($data as $key => &$value) {
+            foreach ($value as $key => &$item) {
                 if ($key === self::ARRAY_RECURSIVE_KEY) {
                     continue;
-                } elseif ($value instanceof static) {
-                    $data[$key] = &$value->closure;
-                } elseif ($value instanceof SelfReference && $value->hash === $this->code['self']) {
-                    $data[$key] = &$this->closure;
+                } elseif ($item instanceof static) {
+                    $value[$key] = &$item->closure;
+                } elseif ($item instanceof SelfReference && $item->hash === $selfHash) {
+                    $value[$key] = &$this->closure;
                 } else {
-                    $this->mapPointers($value);
+                    $this->mapPointersValue($item, $selfHash, $deferredObjects, $scope);
                 }
             }
 
-            unset($value, $data[self::ARRAY_RECURSIVE_KEY]);
-        } elseif ($data instanceof stdClass) {
-            if (isset($scope[$data])) {
+            unset($item, $value[self::ARRAY_RECURSIVE_KEY]);
+        } elseif ($value instanceof stdClass) {
+            if (isset($scope[$value])) {
                 return;
             }
 
-            $scope[$data] = true;
+            $scope[$value] = true;
 
-            foreach ($data as $key => &$value) {
-                if ($value instanceof SelfReference && $value->hash === $this->code['self']) {
-                    $data->{$key} = &$this->closure;
-                } elseif (is_array($value) || is_object($value)) {
-                    $this->mapPointers($value);
+            foreach (array_keys((array) $value) as $key) {
+                $item = &$value->{$key};
+
+                if ($item instanceof SelfReference && $item->hash === $selfHash) {
+                    $value->{$key} = &$this->closure;
+                } elseif (is_array($item) || is_object($item)) {
+                    $this->mapPointersValue($item, $selfHash, $deferredObjects, $scope);
                 }
-            }
 
-            unset($value);
-        } elseif (is_object($data) && ! ( $data instanceof Closure )) {
-            if (isset($scope[$data])) {
+                unset($item);
+            }
+        } elseif (is_object($value) && ! ( $value instanceof Closure )) {
+            if (isset($scope[$value])) {
                 return;
             }
 
-            $scope[$data] = true;
-            $reflection   = new ReflectionObject($data);
+            $scope[$value] = true;
+            $reflection    = new ReflectionObject($value);
 
             do {
                 if (! $reflection->isUserDefined()) {
@@ -409,7 +561,7 @@ class Native implements SerializableInterface
 
                     $property->setAccessible(true);
 
-                    if (PHP_VERSION >= 7.4 && ! $property->isInitialized($data)) {
+                    if (PHP_VERSION >= 7.4 && ! $property->isInitialized($value)) {
                         continue;
                     }
 
@@ -417,21 +569,21 @@ class Native implements SerializableInterface
                         continue;
                     }
 
-                    $item = $property->getValue($data);
+                    $item = $property->getValue($value);
 
                     if (
                         $item instanceof SerializableClosure
                         || $item instanceof UnsignedSerializableClosure
-                        || ( $item instanceof SelfReference && $item->hash === $this->code['self'] )
+                        || ( $item instanceof SelfReference && $item->hash === $selfHash )
                     ) {
-                        $this->code['objects'][] = [
-                            'instance' => $data,
+                        $deferredObjects[] = [
+                            'instance' => $value,
                             'property' => $property,
                             'object'   => $item instanceof SelfReference ? $this : $item,
                         ];
                     } elseif (is_array($item) || is_object($item)) {
-                        $this->mapPointers($item);
-                        $property->setValue($data, $item);
+                        $this->mapPointersValue($item, $selfHash, $deferredObjects, $scope);
+                        $property->setValue($value, $item);
                     }
                 }
             } while ($reflection = $reflection->getParentClass());
@@ -447,6 +599,12 @@ class Native implements SerializableInterface
      */
     protected function mapByReference(mixed &$data): void
     {
+        $scope = $this->scope;
+
+        if (! $scope instanceof ClosureScope) {
+            return;
+        }
+
         if ($data instanceof Closure) {
             if ($data === $this->closure) {
                 $data = new SelfReference($this->reference);
@@ -454,17 +612,18 @@ class Native implements SerializableInterface
                 return;
             }
 
-            if (isset($this->scope[$data])) {
-                $data = $this->scope[$data];
+            if (isset($scope[$data])) {
+                $data = $scope[$data];
 
                 return;
             }
 
             $instance = new static($data);
 
-            $instance->scope = $this->scope;
+            $instance->scope = $scope;
 
-            $data = $this->scope[$data] = $instance;
+            $scope[$data] = $instance;
+            $data         = $instance;
         } elseif (is_array($data)) {
             if (isset($data[self::ARRAY_RECURSIVE_KEY])) {
                 return;
@@ -482,27 +641,33 @@ class Native implements SerializableInterface
 
             unset($value, $data[self::ARRAY_RECURSIVE_KEY]);
         } elseif ($data instanceof stdClass) {
-            if (isset($this->scope[$data])) {
-                $data = $this->scope[$data];
+            if (isset($scope[$data])) {
+                $data = $scope[$data];
 
                 return;
             }
 
-            $instance               = $data;
-            $this->scope[$instance] = $data = clone $data;
+            $clone = clone $data;
 
-            foreach ($data as &$value) {
+            $scope[$data] = $clone;
+            $data         = $clone;
+
+            foreach (array_keys((array) $data) as $key) {
+                $value = &$data->{$key};
+
                 $this->mapByReference($value);
-            }
 
-            unset($value);
+                unset($value);
+            }
         } elseif (
             is_object($data)
             && ! $data instanceof SerializableClosure
             && ! $data instanceof UnsignedSerializableClosure
+            && ! $data instanceof Native
+            && ! $data instanceof SelfReference
         ) {
-            if (isset($this->scope[$data])) {
-                $data = $this->scope[$data];
+            if (isset($scope[$data])) {
+                $data = $scope[$data];
 
                 return;
             }
@@ -510,13 +675,13 @@ class Native implements SerializableInterface
             $instance = $data;
 
             if ($data instanceof DateTimeInterface) {
-                $this->scope[$instance] = $data;
+                $scope[$instance] = $data;
 
                 return;
             }
 
             if ($data instanceof UnitEnum) {
-                $this->scope[$instance] = $data;
+                $scope[$instance] = $data;
 
                 return;
             }
@@ -524,12 +689,15 @@ class Native implements SerializableInterface
             $reflection = new ReflectionObject($data);
 
             if (! $reflection->isUserDefined()) {
-                $this->scope[$instance] = $data;
+                $scope[$instance] = $data;
 
                 return;
             }
 
-            $this->scope[$instance] = $data = $reflection->newInstanceWithoutConstructor();
+            $freshInstance = $reflection->newInstanceWithoutConstructor();
+
+            $scope[$instance] = $freshInstance;
+            $data             = $freshInstance;
 
             do {
                 if (! $reflection->isUserDefined()) {

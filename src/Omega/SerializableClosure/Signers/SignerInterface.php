@@ -35,14 +35,14 @@ interface SignerInterface
      * Sign the given serializable data.
      *
      * @param string $serialized Holds the serializable data to be signed.
-     * @return array Return an array containing the signature.
+     * @return array{serializable: string, hash: string} Return an array containing the signature.
      */
     public function sign(string $serialized): array;
 
     /**
      * Verify the given signature.
      *
-     * @param array $signature Holds the signature to be verified.
+     * @param array{serializable: string, hash: string} $signature Holds the signature to be verified.
      * @return bool Return true if the signature is valid, false otherwise.
      */
     public function verify(array $signature): bool;

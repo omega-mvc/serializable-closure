@@ -80,7 +80,7 @@ class UnsignedSerializableClosure
     /**
      * Get the serializable representation of the closure.
      *
-     * @return array Return an array of serializable representation of the closure.
+     * @return array{serializable: SerializableInterface} Return an array of serializable representation of the closure.
      */
     public function __serialize(): array
     {
@@ -92,7 +92,7 @@ class UnsignedSerializableClosure
     /**
      * Restore the closure after serialization.
      *
-     * @param array $data Holds an array of the closure data for restore.
+     * @param array{serializable: SerializableInterface} $data Holds an array of the closure data for restore.
      * @return void
      */
     public function __unserialize(array $data): void

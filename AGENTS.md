@@ -1,28 +1,30 @@
 # AGENTS.md
 
-Single-package PHP library (`omega-mvc/serializable-closure`) that makes closures serializable, optionally HMAC-signed. Requires PHP ^8.4. All code lives in `src/Omega/SerializableClosure/` (PSR-4 `Omega\SerializableClosure\`). There are **no tests and no CI** in this repo.
+Single-package PHP library (`omega-mvc/serializable-closure`) that makes closures serializable, optionally HMAC-signed. Requires PHP ^8.4. All code lives in `src/Omega/SerializableClosure/` (PSR-4 `Omega\SerializableClosure\`), tests in `tests/` (PSR-4 `Tests\`, Pest).
 
 ## Commands
 
 ```sh
-composer install        # dev deps only (squizlabs/php_codesniffer); vendor/ not committed
-mkdir -p cache/phpcs    # REQUIRED once; phpcs errors out if this dir is missing
-composer phpcs          # the only script defined in composer.json (PSR12 against src/)
+composer install              # dev deps: pest, phpstan, php_codesniffer
+composer test                 # Pest suite (phpunit.xml config)
+composer phpstan              # level 10 over src/ + tests/
+composer phpcs                # PSR-12 over src/ + tests/
+vendor/bin/pest --filter=X    # single test
 ```
 
-- `composer phpcs` currently exits 0 on the whole codebase — any new error you introduce will fail it.
-- `cache/` is **not** gitignored; running phpcs leaves an untracked `cache/` dir behind.
-- README/CONTRIBUTING reference `composer test`, `composer phpunit`, `composer phpstan`, `composer check-style`, `composer phpdoc` — **none of these scripts exist**. Docs are stale/copied from sibling Omega packages; trust `composer.json`.
-- Since there is no test suite, verify behavior changes by writing a throwaway PHP script that round-trips closures through `serialize()`/`unserialize()`.
+All scripts run with `XDEBUG_MODE=off`. `composer.lock` and `/cache/` are gitignored — don't commit the lockfile, ignore untracked caches.
 
-## Architecture
+## Hard-won facts
 
-- `SerializableClosure::__construct()` picks the serializer from global static state: if `SerializableClosure::setSecretKey()` was called it uses `Serializers\Signed` (HMAC via `Signers\Hmac`), otherwise `Serializers\Native`. The secret key must be set identically before `unserialize()`, or tampering throws `Exception\InvalidSignatureException` / missing key throws `Exception\MissingSecretKeyException`.
-- `UnsignedSerializableClosure` always uses native serialization regardless of secret key.
-- On unserialization, closure source is reconstructed by `Support\ReflectionClosure` (tokenizer-based parsing) and executed via the custom stream wrapper registered by `Support\ClosureStream::register()` under protocol `omega-serializable-closure://`. Stream wrappers register once per process — beware side effects when scripting round-trips.
-- Extension hooks are static too: `transformUseVariablesUsing()` / `resolveUseVariablesUsing()` mutate static props on `Native`.
+- **Stream-wrapper methods must stay snake_case** (`stream_open`, ...) in `Support\ClosureStream`: the engine looks them up by exact name. That's why `phpcs.xml.dist` excludes `PSR1.Methods.CamelCapsMethodName` for that file — don't "fix" those names to camelCase, it breaks every unserialize.
+- **HMAC verification is fail-closed**: `Signed::__unserialize()` throws `MissingSecretKeyException` when no signer is set, `InvalidSignatureException` on bad signature. The key must be set before serialize *and* unserialize.
+- **`SerializableClosure::__serialize()` wraps captured closures** (`wrapCapturedClosures`) into `Native` instances and applies the transform hook to its `uses` layer — without it, nested/self-referencing closures fatal and hook-transformed values leak in plaintext.
+- **Never reorder `mapPointers()` before `extract()`**: SelfReference slots must be rewritten (`=& $this->closure`) before symbols are imported with `EXTR_REFS`. Also note: re-binding through a by-ref parameter (`$param = &$other`) does NOT propagate to the caller's array slot — only direct slot writes (`$data[$key] = &$x`) do.
+- `ReflectionClosure` tokenizes by line ranges: closures using `$this`/`self::` written on the same line as their enclosing method are mis-parsed (upstream limitation). Write test fixtures multi-line.
+- `Native::$closure` is nullable during reconstruction; use `getClosure()` which throws if unset.
 
 ## Conventions
 
-- Every file opens with the standard docblock header (`@category/@package/@link/@author/@copyright/@license/@version`) followed by `declare(strict_types=1);` — copy from an existing file for new ones.
-- PHPCS = PSR12 minus CamelCaps-method-name and file-header-grouping sniffs; match surrounding style rather than reformatting.
+- Every file opens with the standard docblock header (`@category/@package/@link/@author/@copyright/@license/@version`) followed by `declare(strict_types=1);` — copy from an existing file.
+- PHPDoc array shapes everywhere (level 10 requires them); keep lines ≤ 120 chars; use class-level `@phpstan-type` aliases for shapes reused in signatures.
+- No suppressions (`@phpstan-ignore`, baselines) and no inline `@var` overrides: fix root causes.

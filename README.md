@@ -16,6 +16,13 @@
     <a href="https://github.com/omega-mvc/serializable-closure/blob/main/LICENSE">License</a>
 </p>
 
+<p align="center">
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/tests.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/tests.yml/badge.svg?label=Pest" alt="Pest"></a>
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/coding-standard.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/coding-standard.yml/badge.svg?label=PHPCS" alt="PHPCS"></a>
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/static-analysis.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/static-analysis.yml/badge.svg?label=PHPStan" alt="PHPStan"></a>
+</p>
+
 # Omega - Serializable Closure
 
 ## Overview
@@ -161,12 +168,15 @@ try {
 
 The signed serialization mechanism utilizes **HMAC (Hash-based Message Authentication Code)** to ensure the integrity of serialized closures. When a secret key is provided using `SerializableClosure::setSecretKey()`, the library generates an HMAC signature of the serialized closure data. This signature is stored alongside the serialized data.
 
-Upon deserialization, the library recalculates the HMAC signature using the same secret key and compares it with the provided signature. If the signatures do not match, an `InvalidSignatureException` is thrown, indicating that the serialized data may have been modified or corrupted since it was originally serialized. This provides a crucial layer of defense against potential code injection or unauthorized modification of closures during transit or storage.
+Upon deserialization, the library recalculates the HMAC signature using the same secret key and compares it with the provided signature. If the signatures do not match, an `InvalidSignatureException` is thrown, indicating that the serialized data may have been modified or corrupted since it was originally stored. This provides a crucial layer of defense against potential code injection or unauthorized modification of closures during transit or storage.
+
+**Fail-closed by design:** loading signed data without the secret key throws `MissingSecretKeyException` instead of silently skipping verification. The key must be set before *both* serializing and unserializing signed closures.
 
 **Important:**
 *   Always use a strong, unique, and securely managed secret key.
 *   Ensure the same secret key is used for both serialization and deserialization.
-*   If no secret key is set, the serialization will fall back to native, unsigned serialization, and signature verification will be skipped.
+*   Without a key at construction time, `SerializableClosure` falls back to native unsigned serialization; `UnsignedSerializableClosure` always stays unsigned.
+*   Serialization without a key on a *signed* closure (key removed after construction) throws `MissingSecretKeyException`.
 
 ## Technical Architecture
 
@@ -191,91 +201,54 @@ This class extends PHP's native `ReflectionFunction` and provides advanced intro
 
 These components work in concert to provide a robust, secure, and flexible solution for serializing PHP closures, ensuring their integrity and faithful reconstruction.
 
-## Analysis
+## Testing
 
-### Static Code Analysis with PHPStan
-
-To run static analysis with `PHPStan`, use the command:
+The test suite runs on [Pest](https://pestphp.com):
 
 ```sh
-composer phpstan
+composer test
 ```
 
-### Static Code Analysis with Code Sniffer
-
-To check the code with `Code Sniffer`, run the command:
+Tests live in `tests/` (PSR-4 `Tests\`), with the suite configuration in `phpunit.xml` — Pest reads PHPUnit's configuration. To run a single file or filter:
 
 ```sh
-composer phpcs
+vendor/bin/pest tests/Unit/SerializableClosureTest.php
+vendor/bin/pest --filter=round-trips
 ```
+
+### Code Coverage
+
+Coverage requires Xdebug (`xdebug.mode=coverage`) or PCOV:
+
+```sh
+XDEBUG_MODE=coverage vendor/bin/pest --coverage
+```
+
+## Static Analysis
+
+```sh
+composer phpstan    # PHPStan level 10 over src/ and tests/
+composer phpcs      # PSR-12 over src/ and tests/
+```
+
+Both must pass before committing; `cache/` holds their result caches and is gitignored.
 
 ## Generating API Documentation with phpDocumentor
 
-To generate the documentation, run the command.
+phpDocumentor is configured via `phpdoc.xml.dist` but the PHAR is not bundled. Install it separately and run:
 
 ```sh
-composer phpdoc
+phpDocumentor.phar -c phpdoc.xml.dist
 ```
 
-> Make sure you have the `phpDocumentor.phar 3.5+` executable installed in the `vendor/bin` directory.
+Output lands in `cache/apiDoc`.
 
-## Testing
+## Troubleshooting
 
-### Running Unit Tests with PHPUnit
-
-To run the tests with `PHPUnit`, type the command:
+All composer scripts are prefixed with `XDEBUG_MODE=off` to avoid noisy xdebug output. When invoking the underlying tools directly, prefix them the same way:
 
 ```sh
-composer phpunit
-```
-
-> Note that the command above will run tests for the classes contained in the `app` and `vendor/omega-mvc` directories.
-
-### Generating Code Coverage Reports
-
-Omega supports code coverage with, requiring `xdebug` to be installed and configured on your system.
-
-Here’s a basic working `xdebug` configuration for `Ubuntu 24.04`:
-
-```sh
-// File name: /etc/php/your_php_version/mods_available/xdebug.ini
-
-zend_extension=xdebug.so
-xdebug.show_exception_trace=0
-xdebug.mode=coverage
-zend_assertion=1
-assert.exception=1
-```
-
-In accordance with the `phpunit` documentation, you should also ensure that the `error_reporting` and `memory_limit` variables are set as follows in the `/etc/php/your_php_version/cli/php.ini` file:
-
-```sh
-error_reporting=-1
-memory_limit=-1
-```
-
-For more information, you can refer to the official documentation of [phpunit](docs.phpunit.de/en/11.4/installation.html)
-
-### Troubleshooting and Known Issues
-
-#### PHPCS (Code Sniffer)
-
-The `phpcs.xml.dist` file is preconfigured to save the cache in the `cache/phpcs` directory at the root of the project. If this directory does not exist, Code Sniffer cannot create it automatically, and you will need to create it manually.
-
-To disable the cache, you can simply comment out or remove this line from the `phpcs.xml.dist` file.
-
-```xml
-<arg name="cache" value="cache/phpcs" />
-```
-
-If you prefer to choose a custom path that better suits your habits, you can simply modify it.
-
-#### Errors When Running Commands from the Console
-
-All commands defined in the `composer.json` file are prefixed with the variable `XDEBUG_MODE=off`. This prevents `xdebug` from producing an excessive amount of output if the configuration is set to `xdebug.mode=debug`or `xdebug.mode=debug,develop`. If you run commands that are not defined in the `composer.json` file, you can suppress these messages as follows:
-
-```sh
-XDEBUG_MODE=off php omega command_name options
+XDEBUG_MODE=off php vendor/bin/phpstan analyse
 ```
 
 ## Official Documentation
