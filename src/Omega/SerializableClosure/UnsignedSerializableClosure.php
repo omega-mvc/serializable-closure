@@ -2,7 +2,7 @@
 
 /**
  * Part of Omega - Serializable Closure Package.
- * php version 8.3
+ * php version 8.4
  *
  * @link        https://omega-mvc.github.io
  * @author      Adriano Giovannini <agisoftt@gmail.com>

@@ -2,7 +2,7 @@
 
 /**
  * Part of Omega - Serializable Closure Package.
- * php version 8.3
+ * php version 8.4
  *
  * @link        https://omega-mvc.github.io
  * @author      Adriano Giovannini <agisoftt@gmail.com>
@@ -29,23 +29,15 @@ namespace Omega\SerializableClosure\Support;
  * @license     https://www.gnu.org/licenses/gpl-3.0-standalone.html     GPL V3.0+
  * @version     1.0.0
  */
-class SelfReference
+final readonly class SelfReference
 {
-    /**
-     * The unique hash representing the object.
-     *
-     * @var string Holds the unique hash representing the object.
-     */
-    public string $hash;
-
     /**
      * Creates a new self reference instance.
      *
      * @param string $hash Holds the unique hash representing the object.
-     * @return void
      */
-    public function __construct(string $hash)
-    {
-        $this->hash = $hash;
+    public function __construct(
+        public string $hash,
+    ) {
     }
 }

@@ -2,7 +2,7 @@
 
 /**
  * Part of Omega - Serializable Closure Package.
- * php version 8.3
+ * php version 8.4
  *
  * @link        https://omega-mvc.github.io
  * @author      Adriano Giovannini <agisoftt@gmail.com>
@@ -413,9 +413,7 @@ final class Native implements SerializableInterface
                         continue;
                     }
 
-                    $property->setAccessible(true);
-
-                    if (PHP_VERSION >= 7.4 && ! $property->isInitialized($instance)) {
+                    if (! $property->isInitialized($instance)) {
                         continue;
                     }
 
@@ -559,13 +557,11 @@ final class Native implements SerializableInterface
                         continue;
                     }
 
-                    $property->setAccessible(true);
-
-                    if (PHP_VERSION >= 7.4 && ! $property->isInitialized($value)) {
+                    if (! $property->isInitialized($value)) {
                         continue;
                     }
 
-                    if (PHP_VERSION >= 8.1 && $property->isReadOnly()) {
+                    if ($property->isReadOnly()) {
                         continue;
                     }
 
@@ -709,9 +705,7 @@ final class Native implements SerializableInterface
                         continue;
                     }
 
-                    $property->setAccessible(true);
-
-                    if (PHP_VERSION >= 7.4 && ! $property->isInitialized($instance)) {
+                    if (! $property->isInitialized($instance)) {
                         continue;
                     }
 

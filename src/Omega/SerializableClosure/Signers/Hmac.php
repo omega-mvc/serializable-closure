@@ -2,7 +2,7 @@
 
 /**
  * Part of Omega - Serializable Closure Package.
- * php version 8.3
+ * php version 8.4
  *
  * @link        https://omega-mvc.github.io
  * @author      Adriano Giovannini <agisoftt@gmail.com>
@@ -33,21 +33,13 @@ namespace Omega\SerializableClosure\Signers;
 class Hmac implements SignerInterface
 {
     /**
-     * The secret key.
-     *
-     * @var string Holds the secret string.
-     */
-    protected string $secret;
-
-    /**
      * Creates a new signer instance.
      *
      * @param string $secret Holds the secret key to use for HMAC.
-     * @return void
      */
-    public function __construct(string $secret)
-    {
-        $this->secret = $secret;
+    public function __construct(
+        private readonly string $secret,
+    ) {
     }
 
     /**

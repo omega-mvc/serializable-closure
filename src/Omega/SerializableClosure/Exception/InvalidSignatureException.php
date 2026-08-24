@@ -2,7 +2,7 @@
 
 /**
  * Part of Omega - Serializable Closure Package.
- * php version 8.3
+ * php version 8.4
  *
  * @link        https://omega-mvc.github.io
  * @author      Adriano Giovannini <agisoftt@gmail.com>
@@ -20,7 +20,7 @@ use Exception;
 /**
  * Invalid signature exception class.
  *
- * THe `InvalidSignaturesException` class thrown when the signature of a serialized closure
+ * The `InvalidSignatureException` class thrown when the signature of a serialized closure
  * is invalid or modified.
  *
  * @category    Omega

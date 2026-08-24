@@ -2,7 +2,7 @@
 
 /**
  * Part of Omega - Serializable Closure Package.
- * php version 8.3
+ * php version 8.4
  *
  * @link        https://omega-mvc.github.io
  * @author      Adriano Giovannini <agisoftt@gmail.com>
@@ -20,8 +20,6 @@ use Omega\SerializableClosure\Signers\SignerInterface;
 use Omega\SerializableClosure\Exception\InvalidSignatureException;
 use Omega\SerializableClosure\Exception\MissingSecretKeyException;
 
-use function call_user_func_array;
-use function func_get_args;
 use function serialize;
 use function unserialize;
 
@@ -40,7 +38,7 @@ use function unserialize;
  * @license     https://www.gnu.org/licenses/gpl-3.0-standalone.html     GPL V3.0+
  * @version     1.0.0
  */
-class Signed implements SerializableInterface
+final class Signed implements SerializableInterface
 {
     /**
      * The signer that will sign and verify the closure's signature.
@@ -70,9 +68,9 @@ class Signed implements SerializableInterface
     /**
      * {@inheritdoc}
      */
-    public function __invoke(): mixed
+    public function __invoke(mixed ...$args): mixed
     {
-        return call_user_func_array($this->closure, func_get_args());
+        return ($this->closure)(...$args);
     }
 
     /**

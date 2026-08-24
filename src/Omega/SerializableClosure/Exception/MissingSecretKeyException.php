@@ -2,7 +2,7 @@
 
 /**
  * Part of Omega - Serializable Closure Package.
- * php version 8.3
+ * php version 8.4
  *
  * @link        https://omega-mvc.github.io
  * @author      Adriano Giovannini <agisoftt@gmail.com>
@@ -20,7 +20,7 @@ use Exception;
 /**
  * Missing secret key exception class.
  *
- * The `MissingSecretException' class thrown when a serializable closure is missing the
+ * The `MissingSecretKeyException` class thrown when a serializable closure is missing the
  * required secret key.
  *
  * @category    Omega
