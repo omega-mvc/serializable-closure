@@ -21,7 +21,6 @@ use function substr;
 use function stat;
 use function strlen;
 
-#[AllowDynamicProperties]
 /**
  * Closure stream class.
  *
@@ -37,6 +36,7 @@ use function strlen;
  * @license     https://www.gnu.org/licenses/gpl-3.0-standalone.html     GPL V3.0+
  * @version     1.0.0
  */
+#[AllowDynamicProperties]
 class ClosureStream
 {
     /**
@@ -44,7 +44,7 @@ class ClosureStream
      *
      * @var string STREAM_PROTO Holds the stream protocol.
      */
-    public const STREAM_PROTO = 'omega-serializable-closure';
+    public const string STREAM_PROTO = 'omega-serializable-closure';
 
     /**
      * Checks if this stream is registered.
@@ -72,7 +72,7 @@ class ClosureStream
      *
      * @var int Holds the stream pointer.
      */
-    protected $pointer = 0;
+    protected int $pointer = 0;
 
     /**
      * Opens a file or URL.
@@ -83,7 +83,7 @@ class ClosureStream
      * @param string|null $openedPath If passed, should be set to the full path of the file/resource
      * @return bool Return true if open stream, false if not.
      */
-    public function stream_open(string $path, string $mode, string|int $options, ?string &$openedPath): bool
+    public function streamOpen(string $path, string $mode, string|int $options, ?string &$openedPath): bool
     {
         $this->content = "<?php\nreturn " . substr($path, strlen(static::STREAM_PROTO . '://')) . ';';
         $this->length  = strlen($this->content);
@@ -97,7 +97,7 @@ class ClosureStream
      * @param int $count Holds the number of bytes to read from the stream.
      * @return string Returns the read string.
      */
-    public function stream_read(int $count): string
+    public function streamRead(int $count): string
     {
         $value = substr($this->content, $this->pointer, $count);
 
@@ -111,7 +111,7 @@ class ClosureStream
      *
      * @return bool Return true if test passed, false if not.
      */
-    public function stream_eof(): bool
+    public function streamEof(): bool
     {
         return $this->pointer >= $this->length;
     }
@@ -124,7 +124,7 @@ class ClosureStream
      * @param int $arg2   Holds the second argument.
      * @return bool Returns true on success or false on failure.
      */
-    public function stream_set_option(int $option, int $arg1, int $arg2): bool
+    public function streamSetOption(int $option, int $arg1, int $arg2): bool
     {
         return false;
     }
@@ -134,7 +134,7 @@ class ClosureStream
      *
      * @return array|bool Returns an array with information about the stream, or false on failure.
      */
-    public function stream_stat(): array|bool
+    public function streamStat(): array|bool
     {
         $stat    = stat(__FILE__);
         $stat[7] = $stat['size'] = $this->length;
@@ -149,7 +149,7 @@ class ClosureStream
      * @param int    $flags Holds additional flags set by the streams API.
      * @return array|bool Returns an array with information about the stream, or false on failure.
      */
-    public function url_stat(string $path, int $flags): array|bool
+    public function urlStat(string $path, int $flags): array|bool
     {
         $stat    = stat(__FILE__);
         $stat[7] = $stat['size'] = $this->length;
@@ -164,7 +164,7 @@ class ClosureStream
      * @param int $whence Holds the reference position.
      * @return bool Returns true on success or false on failure.
      */
-    public function stream_seek(int $offset, int $whence = SEEK_SET): bool
+    public function streamSeek(int $offset, int $whence = SEEK_SET): bool
     {
         $crt = $this->pointer;
 
@@ -197,7 +197,7 @@ class ClosureStream
      *
      * @return int Returns the current position of the stream.
      */
-    public function stream_tell(): int
+    public function streamTell(): int
     {
         return $this->pointer;
     }
