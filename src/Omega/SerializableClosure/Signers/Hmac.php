@@ -51,7 +51,7 @@ class Hmac implements SignerInterface
     {
         return [
             'serializable' => $serialized,
-            'hash'         => base64_encode(hash_hmac('sha256', $serialized, $this->secret, true)),
+            'hash'         => hash_hmac('sha256', $serialized, $this->secret),
         ];
     }
 
@@ -62,8 +62,9 @@ class Hmac implements SignerInterface
      */
     public function verify(array $signature): bool
     {
-        return hash_equals(base64_encode(
-            hash_hmac('sha256', $signature['serializable'], $this->secret, true)
-        ), $signature['hash']);
+        return hash_equals(
+            hash_hmac('sha256', $signature['serializable'], $this->secret),
+            $signature['hash']
+        );
     }
 }
