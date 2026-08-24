@@ -15,6 +15,8 @@ declare(strict_types=1);
 
 namespace Omega\SerializableClosure\Support;
 
+use AllowDynamicProperties;
+
 use function substr;
 use function stat;
 use function strlen;
@@ -33,7 +35,12 @@ use function strlen;
  * @copyright   Copyright (c) 2024 - 2025 Adriano Giovannini
  * @license     https://www.gnu.org/licenses/gpl-3.0-standalone.html     GPL V3.0+
  * @version     1.0.0
+ *
+ * The PHP engine assigns runtime properties to userland stream-wrapper
+ * instances (at minimum {@see \ClosureStream::$context}); the attribute below
+ * is therefore required, not decorative.
  */
+#[AllowDynamicProperties]
 class ClosureStream
 {
     /**
