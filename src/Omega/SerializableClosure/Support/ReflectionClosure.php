@@ -16,6 +16,7 @@ declare(strict_types=1);
 namespace Omega\SerializableClosure\Support;
 
 use Closure;
+use PhpToken;
 use ReflectionException;
 use ReflectionFunction;
 
@@ -42,7 +43,6 @@ use function str_contains;
 use function str_replace;
 use function strtolower;
 use function time;
-use function token_get_all;
 use function trim;
 use function var_export;
 
@@ -63,10 +63,29 @@ use function var_export;
  * @license     https://www.gnu.org/licenses/gpl-3.0-standalone.html     GPL V3.0+
  * @version     1.0.0
  *
- * @phpstan-type Token array{0: int, 1: string, 2: int}|string
  */
 class ReflectionClosure extends ReflectionFunction
 {
+    /**
+     * PHP native built-in types.
+     *
+     * @var list<non-empty-string>
+     */
+    protected const array BUILTIN_TYPES = [
+        'array',
+        'callable',
+        'string',
+        'int',
+        'bool',
+        'float',
+        'iterable',
+        'void',
+        'object',
+        'mixed',
+        'false',
+        'null',
+    ];
+
     /**
      * The code of the closure.
      *
@@ -77,7 +96,7 @@ class ReflectionClosure extends ReflectionFunction
     /**
      * The token extracted from the closure's code.
      *
-     * @var list<Token>|null Holds the token extracted from the closure's code or null.
+     * @var list<PhpToken>|null Holds the token extracted from the closure's code or null.
      */
     protected ?array $tokens = null;
 
@@ -126,7 +145,7 @@ class ReflectionClosure extends ReflectionFunction
     /**
      * Related information array.
      *
-     * @var array<string, list<Token>> Holds an array of related information.
+     * @var array<string, list<PhpToken>> Holds an array of related information.
      */
     protected static array $files = [];
 
@@ -235,7 +254,7 @@ class ReflectionClosure extends ReflectionFunction
             $className = '\\' . trim($className->getName(), '\\');
         }
 
-        $builtin_types  = self::getBuiltinTypes();
+        $builtin_types  = self::BUILTIN_TYPES;
         $class_keywords = ['self', 'static', 'parent'];
 
         $ns  = $this->getClosureNamespaceName();
@@ -270,15 +289,13 @@ class ReflectionClosure extends ReflectionFunction
         for ($i = 0, $l = count($tokens); $i < $l; ++$i) {
             $token = $tokens[$i];
 
-            if (is_array($token)) {
-                $tokenId   = $token[0];
-                $tokenText = $token[1];
-                $tokenLine = $token[2];
-            } else {
-                $tokenId   = $token;
-                $tokenText = $token;
-                $tokenLine = 0;
-            }
+            // Preserve the historical token_get_all contract the state machine
+            // is written against: raw single-character tokens (id < 256) keep
+            // their literal character as id, named tokens expose their T_*
+            // constant.
+            $tokenId   = $token->id < 256 ? $token->text : $token->id;
+            $tokenText = $token->text;
+            $tokenLine = $token->line;
 
             switch ($state) {
                 case 'start':
@@ -936,28 +953,6 @@ class ReflectionClosure extends ReflectionFunction
         return $this->code;
     }
 
-    /**
-     * Get PHP native built in types.
-     *
-     * @return list<non-empty-string> Return an array of native PHP built in types.
-     */
-    protected static function getBuiltinTypes(): array
-    {
-        return [
-            'array',
-            'callable',
-            'string',
-            'int',
-            'bool',
-            'float',
-            'iterable',
-            'void',
-            'object',
-            'mixed',
-            'false',
-            'null',
-        ];
-    }
 
     /**
      * Gets the use variables by the closure.
@@ -1021,7 +1016,7 @@ class ReflectionClosure extends ReflectionFunction
     /**
      * Get the file tokens.
      *
-     * @return list<Token> Return an array of file tokens.
+     * @return list<PhpToken> Return an array of file tokens.
      * @throws ReflectionException If the closure file cannot be read.
      */
     protected function getFileTokens(): array
@@ -1037,7 +1032,7 @@ class ReflectionClosure extends ReflectionFunction
                 throw new ReflectionException('Cannot read the closure source file.');
             }
 
-            static::$files[$key] = token_get_all($source);
+            static::$files[$key] = array_values(PhpToken::tokenize($source));
 
             return static::$files[$key];
         }
@@ -1048,7 +1043,7 @@ class ReflectionClosure extends ReflectionFunction
     /**
      * Get the tokens.
      *
-     * @return list<Token> Return an array of the tokens.
+     * @return list<PhpToken> Return an array of the tokens.
      */
     protected function getTokens(): array
     {
@@ -1060,18 +1055,8 @@ class ReflectionClosure extends ReflectionFunction
             $start     = false;
 
             foreach ($tokens as $token) {
-                if (! is_array($token)) {
-                    if ($start) {
-                        $results[] = $token;
-                    }
-
-                    continue;
-                }
-
-                $line = $token[2];
-
-                if ($line <= $endLine) {
-                    if ($line >= $startLine) {
+                if ($token->line <= $endLine) {
+                    if ($token->line >= $startLine) {
                         $start     = true;
                         $results[] = $token;
                     }
@@ -1180,15 +1165,9 @@ class ReflectionClosure extends ReflectionFunction
         $structIgnore = false;
 
         foreach ($tokens as $token) {
-            if (is_array($token)) {
-                $tokenId   = $token[0];
-                $tokenText = $token[1];
-                $tokenLine = $token[2];
-            } else {
-                $tokenId   = $token;
-                $tokenText = $token;
-                $tokenLine = 0;
-            }
+            $tokenId   = $token->id < 256 ? $token->text : $token->id;
+            $tokenText = $token->text;
+            $tokenLine = $token->line;
 
             switch ($state) {
                 case 'start':
@@ -1277,7 +1256,7 @@ class ReflectionClosure extends ReflectionFunction
                                 }
                             }
                             $name  = $alias = '';
-                            $state = $token === ';' ? 'start' : 'use';
+                            $state = $tokenText === ';' ? 'start' : 'use';
 
                             break;
                     }
@@ -1320,7 +1299,7 @@ class ReflectionClosure extends ReflectionFunction
                                 }
                             }
                             $name  = $alias = '';
-                            $state = $token === '}' ? 'use' : 'use-group';
+                            $state = $tokenText === '}' ? 'use' : 'use-group';
 
                             break;
                     }
@@ -1391,9 +1370,7 @@ class ReflectionClosure extends ReflectionFunction
 
                             break;
                         default:
-                            if (is_array($token)) {
-                                $endLine = $token[2];
-                            }
+                            $endLine = $tokenLine;
                     }
 
                     break;
