@@ -36,5 +36,9 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-interaction --no-progress
 
+      - name: Create PHPCS cache directory
+        # phpcs cannot create intermediate directories for its result cache.
+        run: mkdir -p cache/phpcs
+
       - name: Run PHP_CodeSniffer
         run: vendor/bin/phpcs

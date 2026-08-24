@@ -2,10 +2,8 @@
 <ruleset name="omega-mvc-serializable-closure">
     <description>PSR-12 coding standard for omega-mvc/serializable-closure.</description>
 
-    <!-- Result-cache in the system temp dir: a project-relative path would
-         require a pre-created directory and break fresh clones/CI. -->
-    <arg name="cache"/>
-    <arg name="parallel" value="8"/>
+    <arg name="cache" value="cache/phpcs/phpcs.json"/>
+    <arg name="parallel" value="4"/>
 
     <file>src</file>
     <file>tests</file>
