@@ -229,11 +229,8 @@ final class Native implements SerializableInterface
         $reflector = $this->getReflector();
 
         if ($reflector->isBindingRequired()) {
-            $wrappedThis = $reflector->getClosureThis();
-
-            static::wrapClosures($wrappedThis, $closureScope);
-
-            $object = is_object($wrappedThis) ? $wrappedThis : null;
+            $bound  = self::wrapClosures($reflector->getClosureThis(), $closureScope);
+            $object = is_object($bound) ? $bound : null;
         }
 
         if ($scopeClass = $reflector->getClosureScopeClass()) {
@@ -338,20 +335,23 @@ final class Native implements SerializableInterface
     }
 
     /**
-     * Ensures that the given closures are serializable, wrapping them with the appropriate class if needed.
+     * Ensures that the given closures are serializable, wrapping them with the
+     * appropriate class if needed, and returns the transformed value.
      *
-     * @param mixed        $data    Holds the data containing closures to be wrapped.
+     * @param mixed        $data    Holds the data whose closures have to be wrapped.
      * @param ClosureScope $storage Holds the closure storage instance.
-     * @return void
+     * @return mixed Return the value with every closure wrapped for serialization.
      * @throws ReflectionException
      */
-    public static function wrapClosures(mixed &$data, ClosureScope $storage): void
+    private static function wrapClosures(mixed $data, ClosureScope $storage): mixed
     {
         if ($data instanceof Closure) {
-            $data = new static($data);
-        } elseif (is_array($data)) {
+            return new static($data);
+        }
+
+        if (is_array($data)) {
             if (isset($data[self::ARRAY_RECURSIVE_KEY])) {
-                return;
+                return $data;
             }
 
             $data[self::ARRAY_RECURSIVE_KEY] = true;
@@ -360,58 +360,67 @@ final class Native implements SerializableInterface
                 if ($key === self::ARRAY_RECURSIVE_KEY) {
                     continue;
                 }
-                static::wrapClosures($value, $storage);
+                $value = self::wrapClosures($value, $storage);
             }
 
             unset($value, $data[self::ARRAY_RECURSIVE_KEY]);
-        } elseif ($data instanceof stdClass) {
-            if (isset($storage[$data])) {
-                $data = $storage[$data];
 
-                return;
+            return $data;
+        }
+
+        if ($data instanceof stdClass) {
+            if (isset($storage[$data])) {
+                return $storage[$data];
             }
 
             $clone = clone $data;
 
             $storage[$data] = $clone;
-            $data           = $clone;
 
-            foreach (array_keys((array) $data) as $key) {
-                $value = &$data->{$key};
+            foreach (array_keys((array) $clone) as $key) {
+                $item = &$clone->{$key};
 
-                static::wrapClosures($value, $storage);
+                $item = self::wrapClosures($item, $storage);
 
-                unset($value);
+                unset($item);
             }
-        } elseif (is_object($data) && ! $data instanceof static && ! $data instanceof UnitEnum) {
+
+            return $clone;
+        }
+
+        if (
+            is_object($data)
+            && ! $data instanceof static
+            && ! $data instanceof UnitEnum
+        ) {
             if (isset($storage[$data])) {
-                $data = $storage[$data];
-
-                return;
+                return $storage[$data];
             }
 
-            $instance   = $data;
-            $reflection = new ReflectionObject($instance);
+            $reflection = new ReflectionObject($data);
 
             if (! $reflection->isUserDefined()) {
-                $storage[$instance] = $data;
+                $storage[$data] = $data;
 
-                return;
+                return $data;
             }
 
             $freshInstance = $reflection->newInstanceWithoutConstructor();
 
-            $storage[$instance] = $freshInstance;
-            $data               = $freshInstance;
+            $storage[$data] = $freshInstance;
 
-            foreach (self::userDefinedProperties($instance) as $property => $value) {
+            foreach (self::userDefinedProperties($data) as $property => $value) {
                 if (is_array($value) || is_object($value)) {
-                    static::wrapClosures($value, $storage);
+                    $value = self::wrapClosures($value, $storage);
                 }
 
-                $property->setValue($data, $value);
+                $property->setValue($freshInstance, $value);
             }
+
+            return $freshInstance;
         }
+
+        return $data;
     }
 
     /**
