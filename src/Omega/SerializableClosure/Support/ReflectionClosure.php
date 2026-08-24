@@ -1025,7 +1025,11 @@ class ReflectionClosure extends ReflectionFunction
         if (! isset(static::$files[$key])) {
             $fileName = $this->getFileName();
 
-            $source = is_string($fileName) ? file_get_contents($fileName) : false;
+            if (! is_string($fileName) || ! is_file($fileName)) {
+                throw new ReflectionException('Cannot read the closure source file.');
+            }
+
+            $source = file_get_contents($fileName);
 
             if ($source === false) {
                 throw new ReflectionException('Cannot read the closure source file.');
@@ -1174,11 +1178,15 @@ class ReflectionClosure extends ReflectionFunction
                         case T_CLASS:
                         case T_INTERFACE:
                         case T_TRAIT:
+                        case T_ENUM:
                             $state      = 'before_structure';
                             $startLine  = $tokenLine;
-                            $structType = $tokenId == T_CLASS
-                                ? 'class'
-                                : ( $tokenId == T_INTERFACE ? 'interface' : 'trait' );
+                            $structType = match (true) {
+                                $tokenId == T_CLASS     => 'class',
+                                $tokenId == T_INTERFACE => 'interface',
+                                $tokenId == T_ENUM      => 'enum',
+                                default                 => 'trait',
+                            };
 
                             break;
                         case T_USE:
