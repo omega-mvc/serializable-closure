@@ -1025,6 +1025,8 @@ class ReflectionClosure extends ReflectionFunction
         if (! isset(static::$files[$key])) {
             $fileName = $this->getFileName();
 
+            // getHashedFileName() already rejected a missing file name, so an
+            // unreachable-file situation is the only failure mode left here.
             if (! is_string($fileName) || ! is_file($fileName)) {
                 throw new ReflectionException('Cannot read the closure source file.');
             }

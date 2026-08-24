@@ -247,3 +247,48 @@ test('the kitchen-sink closure keeps working after a round trip', function () {
 
     expect($restored())->toContain('|y|');
 });
+
+final class TrickyHost
+{
+    public static int $counter = 0;
+
+    public function tricky(): Closure
+    {
+        static $memo = 0;
+
+        return function (): int { return function () { return 5; }; };
+    }
+}
+
+test('one-line methods exercise the modifier, named-function and nesting paths', function () {
+    $rc = reflect((new TrickyHost)->tricky());
+
+    expect($rc->getCode())->toContain('function')
+        ->and($rc->getCode())->not->toContain('tricky');
+});
+
+test('isShortClosure memoizes independently from isStatic', function () {
+    $rc = reflect(static fn (): int => 6);
+
+    expect($rc->isShortClosure())->toBeTrue()
+        ->and($rc->isStatic())->toBeTrue();
+});
+
+test('multiline arrows cross comma and bracket boundaries', function () {
+    $rc = reflect(fn (): array => [
+        1,
+        2,
+    ]);
+
+    expect($rc->getCode())->toContain('=>')
+        ->and($rc->getCode())->toContain('2');
+});
+
+test('the trackme comment injects the provenance header', function () {
+    $host = new \Tests\Fixtures\Rich\RichHost();
+
+    $code = reflect($host->sink())->getCode();
+
+    expect($code)->toContain('Date      : ')
+        ->and($code)->toContain('Timestamp : ');
+});
