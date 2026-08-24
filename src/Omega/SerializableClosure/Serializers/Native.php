@@ -17,6 +17,7 @@ namespace Omega\SerializableClosure\Serializers;
 
 use Closure;
 use DateTimeInterface;
+use Generator;
 use ReflectionException;
 use ReflectionObject;
 use ReflectionProperty;
@@ -403,29 +404,47 @@ final class Native implements SerializableInterface
             $storage[$instance] = $freshInstance;
             $data               = $freshInstance;
 
-            do {
-                if (! $reflection->isUserDefined()) {
-                    break;
+            foreach (self::userDefinedProperties($instance) as $property => $value) {
+                if (is_array($value) || is_object($value)) {
+                    static::wrapClosures($value, $storage);
                 }
 
-                foreach ($reflection->getProperties() as $property) {
-                    if ($property->isStatic() || ! $property->getDeclaringClass()->isUserDefined()) {
-                        continue;
-                    }
+                $property->setValue($data, $value);
+            }
+        }
+    }
 
-                    if (! $property->isInitialized($instance)) {
-                        continue;
-                    }
+    /**
+     * Iterates the initialized, non-static properties declared by user-defined
+     * classes along the whole inheritance chain of the given instance.
+     *
+     * @param object $instance Holds the object whose properties to visit.
+     * @return Generator<ReflectionProperty, mixed, null, void> Yields property/value pairs.
+     */
+    private static function userDefinedProperties(object $instance): Generator
+    {
+        $reflection = new ReflectionObject($instance);
 
-                    $value = $property->getValue($instance);
-
-                    if (is_array($value) || is_object($value)) {
-                        static::wrapClosures($value, $storage);
-                    }
-
-                    $property->setValue($data, $value);
+        while ($reflection->isUserDefined()) {
+            foreach ($reflection->getProperties() as $property) {
+                if ($property->isStatic() || ! $property->getDeclaringClass()->isUserDefined()) {
+                    continue;
                 }
-            } while ($reflection = $reflection->getParentClass());
+
+                if (! $property->isInitialized($instance)) {
+                    continue;
+                }
+
+                yield $property => $property->getValue($instance);
+            }
+
+            $parent = $reflection->getParentClass();
+
+            if ($parent === false) {
+                break;
+            }
+
+            $reflection = $parent;
         }
     }
 
@@ -695,29 +714,13 @@ final class Native implements SerializableInterface
             $scope[$instance] = $freshInstance;
             $data             = $freshInstance;
 
-            do {
-                if (! $reflection->isUserDefined()) {
-                    break;
+            foreach (self::userDefinedProperties($instance) as $property => $value) {
+                if (is_array($value) || is_object($value)) {
+                    $this->mapByReference($value);
                 }
 
-                foreach ($reflection->getProperties() as $property) {
-                    if ($property->isStatic() || ! $property->getDeclaringClass()->isUserDefined()) {
-                        continue;
-                    }
-
-                    if (! $property->isInitialized($instance)) {
-                        continue;
-                    }
-
-                    $value = $property->getValue($instance);
-
-                    if (is_array($value) || is_object($value)) {
-                        $this->mapByReference($value);
-                    }
-
-                    $property->setValue($data, $value);
-                }
-            } while ($reflection = $reflection->getParentClass());
+                $property->setValue($data, $value);
+            }
         }
     }
 }
