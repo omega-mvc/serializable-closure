@@ -158,7 +158,7 @@ test('transform hooks rewrite the use variables on serialization', function () {
     Native::$transformUseVariables = fn (array $vars): array => ['sealed' => count($vars)];
 
     $marker = 'value';
-    $native = nativeOf(function () use ($marker) {});
+    $native = nativeOf(fn (): string => $marker);
     $data = $native->__serialize();
 
     Native::$transformUseVariables = null;
@@ -167,7 +167,9 @@ test('transform hooks rewrite the use variables on serialization', function () {
 });
 
 test('resolution hooks restore transformed variables on deserialization', function () {
-    Native::$resolveUseVariables = fn (array $vars): array => ['marker' => strtoupper((string) $vars['enveloped'])];
+    Native::$resolveUseVariables = function (array $vars): array {
+        return ['marker' => strtoupper(is_string($raw = $vars['enveloped'] ?? null) ? $raw : '')];
+    };
 
     $payload = [
         'use' => ['enveloped' => 'abc'],
@@ -183,4 +185,155 @@ test('resolution hooks restore transformed variables on deserialization', functi
     Native::$resolveUseVariables = null;
 
     expect($native->getClosure()())->toBe('ABC');
+});
+
+test('transform hooks returning non-iterables degrade to an empty use set', function () {
+    Native::$transformUseVariables = fn (): string => 'not-an-array';
+
+    $marker = 'kept-out';
+    $native = nativeOf(fn (): string => $marker);
+    $data = $native->__serialize();
+
+    Native::$transformUseVariables = null;
+
+    expect($data['use'])->toBe([]);
+});
+
+test('re-unserializing the same instance normalizes self-referencing this', function () {
+    $payload = [
+        'use' => [],
+        'function' => 'fn (): int => 1;',
+        'scope' => null,
+        'this' => null,
+        'self' => 'hash',
+    ];
+
+    $native = emptyNative();
+    $native->__unserialize($payload);
+
+    // Second pass: the payload now points back at the very wrapper being restored.
+    $payload['this'] = $native;
+    $native->__unserialize($payload);
+
+    expect($native->getClosure()())->toBe(1);
+});
+
+test('the closure walker passes scalars through untouched', function () {
+    $method = new ReflectionMethod(Native::class, 'wrapClosures');
+    $method->setAccessible(true);
+
+    $value = 'plain-string';
+
+    expect($method->invoke(null, $value, new ClosureScope()))->toBe('plain-string');
+});
+
+test('self-referencing arrays hit the recursion sentinel once', function () {
+    $loop = [];
+    $loop['self'] = &$loop;
+    $uses = ['loop' => &$loop];
+
+    $scoped = withScope(nativeOf(fn (): int => 1), new ClosureScope());
+    $method = new ReflectionMethod(Native::class, 'mapByReference');
+    $method->setAccessible(true);
+    $args = [&$uses];
+    $method->invokeArgs($scoped, $args);
+
+    expect($uses['loop'])->toBeArray();
+});
+
+test('aliased objects are serialized through the scope cache', function () {
+    $host = new \Tests\Fixtures\Rich\RichHost();
+    $host->boundWithProps();
+
+    $closure = fn (): int => 1;
+    $scoped = withScope(nativeOf($closure), new ClosureScope());
+
+    $method = new ReflectionMethod(Native::class, 'wrapClosures');
+    $method->setAccessible(true);
+
+    $storage = new ClosureScope();
+    $first   = $method->invoke(null, $host->aliasOne, $storage);
+    $second  = $method->invoke(null, $host->aliasTwo, $storage);
+    $internal = $method->invoke(null, $host->internal, new ClosureScope());
+
+    expect($first)->toBeInstanceOf(\Tests\Fixtures\UserDefinedFixture::class)
+        ->and($second)->toBeInstanceOf(\Tests\Fixtures\UserDefinedFixture::class)
+        ->and($internal)->toBeInstanceOf(ArrayObject::class);
+});
+
+test('the walker wraps closures inside plain arrays', function () {
+    $method = new ReflectionMethod(Native::class, 'wrapClosures');
+    $method->setAccessible(true);
+
+    $payload = [fn (): int => 1, 'scalar', [fn (): int => 2]];
+
+    $wrapped = $method->invoke(null, $payload, new ClosureScope());
+
+    if (! is_array($wrapped) || ! isset($wrapped[2]) || ! is_array($wrapped[2])) {
+        throw new Exception('Unexpected walker shape.');
+    }
+
+    expect($wrapped[0])->toBeInstanceOf(Native::class)
+        ->and($wrapped[1])->toBe('scalar')
+        ->and($wrapped[2][0])->toBeInstanceOf(Native::class);
+});
+
+test('stdClass payloads are cloned with their closures wrapped', function () {
+    $method = new ReflectionMethod(Native::class, 'wrapClosures');
+    $method->setAccessible(true);
+
+    $box = new stdClass();
+    $box->cb = fn (): int => 2;
+
+    $wrapped = $method->invoke(null, $box, new ClosureScope());
+
+    if (! $wrapped instanceof stdClass) {
+        throw new Exception('Unexpected walker result.');
+    }
+
+    expect($wrapped->cb)->toBeInstanceOf(Native::class);
+});
+
+test('re-encountering the same object returns the cached instance', function () {
+    $method = new ReflectionMethod(Native::class, 'wrapClosures');
+    $method->setAccessible(true);
+
+    $object = new Tests\Fixtures\UserDefinedFixture();
+    $storage = new ClosureScope();
+
+    $first = $method->invoke(null, $object, $storage);
+    $second = $method->invoke(null, $object, $storage);
+
+    expect($first)->toBeInstanceOf(Tests\Fixtures\UserDefinedFixture::class)
+        ->and($first)->not->toBe($object)
+        ->and($second)->toBe($first);
+});
+
+test('mapByReference mirrors the walker for arrays and stdclass', function () {
+    $scoped = withScope(nativeOf(fn (): int => 1), new ClosureScope());
+    $method = new ReflectionMethod(Native::class, 'mapByReference');
+    $method->setAccessible(true);
+
+    $uses = ['list' => [fn (): int => 3], 'box' => new stdClass(), 'when' => new DateTimeImmutable()];
+    $args = [&$uses];
+    $method->invokeArgs($scoped, $args);
+
+    expect($uses['list'][0])->toBeInstanceOf(Native::class)
+        ->and($uses['box'])->toBeInstanceOf(stdClass::class)
+        ->and($uses['when'])->toBeInstanceOf(DateTimeImmutable::class);
+});
+
+test('resolve hooks without entries keep the payload untouched', function () {
+    Native::$resolveUseVariables = null;
+
+    $native = emptyNative();
+    $native->__unserialize([
+        'use' => [],
+        'function' => 'fn (): int => 8;',
+        'scope' => null,
+        'this' => null,
+        'self' => 'hash',
+    ]);
+
+    expect($native->getClosure()())->toBe(8);
 });

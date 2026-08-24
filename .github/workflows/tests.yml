@@ -46,4 +46,6 @@ jobs:
         run: composer install --prefer-dist --no-interaction --no-progress
 
       - name: Run Pest
-        run: vendor/bin/pest
+        # --no-coverage keeps the job green: the XML declares an HTML report
+        # that needs a coverage driver, which CI deliberately does not provide.
+        run: vendor/bin/pest --no-coverage

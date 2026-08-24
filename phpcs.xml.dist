@@ -8,8 +8,17 @@
     <file>src</file>
     <file>tests</file>
     <exclude-pattern>vendor/*</exclude-pattern>
+    <!-- Fixtures are test data: dense multi-symbol files by design. -->
+    <exclude-pattern>tests/Fixtures/*</exclude-pattern>
 
     <rule ref="PSR12"/>
+
+    <!-- Test files legitimately mix declarations and runtime work (eval-based
+         fixtures, procedural dataset builders): PSR-1 side-effect sniffing
+         applies to src/ only. -->
+    <rule ref="PSR1.Files.SideEffects">
+        <exclude-pattern>tests/*</exclude-pattern>
+    </rule>
 
     <!-- PHP looks up stream-wrapper protocol methods by their exact snake_case
          names (stream_open, stream_read, ...); PSR-1 camelCase method naming

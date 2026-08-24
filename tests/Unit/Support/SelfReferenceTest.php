@@ -24,6 +24,9 @@ test('it exposes the given hash', function () {
 test('it round-trips through serialization', function () {
     $restored = unserialize(serialize(new SelfReference('deadbeef')));
 
-    expect($restored)->toBeInstanceOf(SelfReference::class)
-        ->and($restored->hash)->toBe('deadbeef');
+    if (! $restored instanceof SelfReference) {
+        throw new Exception('Unexpected restored type.');
+    }
+
+    expect($restored->hash)->toBe('deadbeef');
 });

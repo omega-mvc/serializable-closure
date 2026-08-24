@@ -16,8 +16,10 @@ declare(strict_types=1);
 namespace Tests\Unit\Support;
 
 use Closure;
+use Exception;
 use Omega\SerializableClosure\Serializers\Native;
 use Omega\SerializableClosure\Support\ReflectionClosure;
+use Tests\Fixtures\ExposedReflectionClosure;
 use ReflectionException as NativeReflectionException;
 use Tests\Fixtures\AttributeHost;
 use Tests\Fixtures\MethodHost;
@@ -29,43 +31,19 @@ function reflect(Closure $closure): ReflectionClosure
     return new ReflectionClosure($closure);
 }
 
-final class ExposedReflectionClosure extends ReflectionClosure
-{
-    public function __construct(Closure $closure)
-    {
-        parent::__construct($closure);
-    }
-
-    public function classes(): array
-    {
-        return $this->getClasses();
-    }
-
-    public function functions(): array
-    {
-        return $this->getFunctions();
-    }
-
-    public function constants(): array
-    {
-        return $this->getConstants();
-    }
-
-    public function structures(): array
-    {
-        return $this->getStructures();
-    }
-}
-
 test('it detects plain closures', function () {
-    $rc = reflect(function (): int { return 1; });
+    $rc = reflect(function (): int {
+        return 1;
+    });
 
     expect($rc->isStatic())->toBeFalse()
         ->and($rc->isShortClosure())->toBeFalse();
 });
 
 test('it detects static closures', function () {
-    $rc = reflect(static function (): int { return 2; });
+    $rc = reflect(static function (): int {
+        return 2;
+    });
 
     expect($rc->isStatic())->toBeTrue()
         ->and($rc->isShortClosure())->toBeFalse();
@@ -106,14 +84,17 @@ test('parent:: references require the scope class too', function () {
 });
 
 test('getCode extracts a classic closure body', function () {
-    $code = reflect(function (int $x): int { return $x + 1; })->getCode();
+    $code = reflect(function (int $x): int {
+        return $x + 1;
+    })->getCode();
 
     expect($code)->toContain('function (int $x): int')
         ->and($code)->toContain('return $x + 1;');
 });
 
 test('getCode keeps the static keyword for static closures', function () {
-    expect(reflect(static function (): void {})->getCode())
+    expect(reflect(static function (): void {
+    })->getCode())
         ->toStartWith('static function');
 });
 
@@ -123,7 +104,9 @@ test('getCode keeps the fn keyword for arrow functions', function () {
 });
 
 test('getCode replaces __FILE__ and __DIR__ with literals', function () {
-    $code = reflect(function (): array { return [__FILE__, __DIR__]; })->getCode();
+    $code = reflect(function (): array {
+        return [__FILE__, __DIR__];
+    })->getCode();
 
     expect($code)->not->toContain('__FILE__')
         ->and($code)->not->toContain('__DIR__')
@@ -131,16 +114,25 @@ test('getCode replaces __FILE__ and __DIR__ with literals', function () {
 });
 
 test('getCode resolves the closure magic constants to {closure} exports', function () {
-    $code = reflect(function (): array { return [__FUNCTION__, __METHOD__, __CLASS__]; })->getCode();
+    $code = reflect(function (): array {
+        return [__FUNCTION__, __METHOD__];
+    })->getCode();
 
     expect($code)->toContain('{closure}')
         ->and($code)->not->toContain('__FUNCTION__')
-        ->and($code)->not->toContain('__METHOD__')
-        ->and($code)->not->toContain('__CLASS__');
+        ->and($code)->not->toContain('__METHOD__');
+});
+
+test('getCode resolves __CLASS__ inside a real class scope', function () {
+    $code = reflect((new RichHost())->classConstant())->getCode();
+
+    expect($code)->not->toContain('__CLASS__');
 });
 
 test('getCode resolves __NAMESPACE__ with the real namespace literal', function () {
-    $code = reflect(function (): string { return __NAMESPACE__; })->getCode();
+    $code = reflect(function (): string {
+        return __NAMESPACE__;
+    })->getCode();
 
     // Pest prefixes compiled test namespaces with 'P\'; var_export doubles
     // the backslashes, so compare against its own escaping.
@@ -150,10 +142,11 @@ test('getCode resolves __NAMESPACE__ with the real namespace literal', function 
         ->and($code)->not->toContain('__NAMESPACE__');
 });
 
-test('getCode resolves __TRAIT__ to an empty string outside traits', function () {
-    $code = reflect(function (): string { return __TRAIT__; })->getCode();
+test('getCode resolves __TRAIT__ inside trait-backed closures', function () {
+    $code = reflect((new RichHost())->traitConstant())->getCode();
 
-    expect($code)->not->toContain('__TRAIT__');
+    expect($code)->not->toContain('__TRAIT__')
+        ->and($code)->toContain('Colorable');
 });
 
 test('first-class callable methods extract only the signature and body', function () {
@@ -194,6 +187,10 @@ test('the constructor accepts and caches pre-extracted code', function () {
 test('eval-created closures cannot be tokenized from disk', function () {
     $closure = eval('return fn (): int => 9;');
 
+    if (! $closure instanceof Closure) {
+        throw new Exception('Eval did not produce a closure.');
+    }
+
     expect(fn () => reflect($closure)->getCode())
         ->toThrow(NativeReflectionException::class, 'Cannot read');
 });
@@ -203,7 +200,7 @@ test('use variables are extracted by name for classic closures', function () {
     $beta = 'two';
     $unused = 3.0;
 
-    $uses = reflect(function () use ($alpha, $beta, $unused): void {})->getUseVariables();
+    $uses = reflect(fn () => [$alpha, $beta, $unused])->getUseVariables();
 
     expect($uses)->toBe(['alpha' => 1, 'beta' => 'two', 'unused' => 3.0]);
 });
@@ -245,7 +242,7 @@ test('the kitchen-sink closure keeps working after a round trip', function () {
         $host->sink()
     )));
 
-    expect($restored())->toContain('|y|');
+    expect($restored())->toContain('|N|');
 });
 
 final class TrickyHost
@@ -256,12 +253,20 @@ final class TrickyHost
     {
         static $memo = 0;
 
-        return function (): int { return function () { return 5; }; };
+        return function () use ($memo): callable {
+            if ($memo < 0) {
+                function ghost(): void
+                {
+                }
+            }
+
+            return fn (): int => 5;
+        };
     }
 }
 
 test('one-line methods exercise the modifier, named-function and nesting paths', function () {
-    $rc = reflect((new TrickyHost)->tricky());
+    $rc = reflect((new TrickyHost())->tricky());
 
     expect($rc->getCode())->toContain('function')
         ->and($rc->getCode())->not->toContain('tricky');

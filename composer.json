@@ -31,7 +31,7 @@
   "scripts": {
     "phpcs": "XDEBUG_MODE=off php vendor/bin/phpcs",
     "phpstan": "XDEBUG_MODE=off php vendor/bin/phpstan analyse",
-    "test": "XDEBUG_MODE=off php vendor/bin/pest"
+    "test": "XDEBUG_MODE=off php vendor/bin/pest --no-coverage"
   },
   "minimum-stability": "stable",
   "require-dev": {

@@ -15,13 +15,7 @@ declare(strict_types=1);
 
 namespace Tests\Fixtures;
 
-/**
- * Base fixture with a protected property to exercise inheritance-chain walking.
- */
-class ParentFixture
-{
-    protected string $inherited = 'from-parent';
-}
+use Tests\Fixtures\ParentFixture;
 
 /**
  * Fixture exercising every property-walking branch of Native.

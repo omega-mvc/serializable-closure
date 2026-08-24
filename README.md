@@ -223,6 +223,10 @@ Coverage requires Xdebug (`xdebug.mode=coverage`) or PCOV:
 XDEBUG_MODE=coverage vendor/bin/pest --coverage
 ```
 
+The run generates an HTML report (lines, branches and paths) in
+`cache/coverage/index.html`. Plain `composer test` skips coverage on purpose:
+pass `--no-coverage` wherever a coverage driver is not available.
+
 ## Static Analysis
 
 ```sh

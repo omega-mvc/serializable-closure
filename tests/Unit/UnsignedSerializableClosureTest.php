@@ -34,8 +34,13 @@ test('its payload carries only the native serializable', function () {
 
 test('it survives a full serialization cycle', function () {
     $factor = 3;
-    $restored = unserialize(serialize(new UnsignedSerializableClosure(fn (int $x): int => $x * $factor)));
+    $payload = serialize(new UnsignedSerializableClosure(fn (int $x): int => $x * $factor));
 
-    expect($restored)->toBeInstanceOf(UnsignedSerializableClosure::class)
-        ->and($restored(5))->toBe(15);
+    $restored = unserialize($payload);
+
+    if (! $restored instanceof UnsignedSerializableClosure) {
+        throw new Exception('Unexpected restored type.');
+    }
+
+    expect($restored(5))->toBe(15);
 });

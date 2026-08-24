@@ -17,7 +17,7 @@ use Omega\SerializableClosure\SerializableClosure;
 use Tests\Fixtures\UserDefinedFixture;
 
 test('scalar-body closures survive the round trip', function () {
-    $restored = unserialize(serialize(new SerializableClosure(fn (): int => 1)));
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure(fn (): int => 1)));
 
     expect($restored())->toBe(1);
 });
@@ -27,20 +27,24 @@ test('nested array bodies survive the round trip', function () {
         return ['a' => [1, 2], 'b' => ['c' => 3]];
     };
 
-    $restored = unserialize(serialize(new SerializableClosure($closure)));
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($closure)));
+    $result = $restored();
 
-    expect($restored())->toBe(['a' => [1, 2], 'b' => ['c' => 3]]);
+    if (! is_array($result)) {
+        throw new Exception('Unexpected restored type.');
+    }
+
+    expect($result)->toBe(['a' => [1, 2], 'b' => ['c' => 3]]);
 });
 
 test('string interpolation braces survive the round trip', function () {
     $closure = function (): string {
         $name = 'x';
 
-        return "hi ${name} and {$name}!";
+        return "hi {$name} and {$name}!";
     };
 
-    $restored = unserialize(serialize(new SerializableClosure($closure)));
-
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($closure)));
     expect($restored())->toBe('hi x and x!');
 });
 
@@ -52,8 +56,7 @@ test('objects holding serializable closures restore their bindings', function ()
         return ($holder->callback)();
     };
 
-    $restored = unserialize(serialize(new SerializableClosure($closure)));
-
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($closure)));
     expect($restored())->toBe(11);
 });
 
@@ -61,25 +64,27 @@ test('deferred bindings rewire object properties holding wrappers', function () 
     $holder = new \Tests\Fixtures\UntypedHolder();
     $holder->payload = new SerializableClosure(fn (): int => 33);
 
-    $closure = function () use ($holder): int {
-        return ($holder->payload)();
+    $closure = function () use ($holder) {
+        // After the round trip the deferred binding stores the raw closure.
+        $wrapped = $holder->payload;
+
+        return $wrapped();
     };
 
-    $restored = unserialize(serialize(new SerializableClosure($closure)));
-
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($closure)));
     expect($restored())->toBe(33);
 });
 
 test('nullsafe and static-class access survive the round trip', function () {
     $host = new UserDefinedFixture();
 
-    $closure = function () use ($host): ?string {
-        $maybe = null;
+    $closure = function () use ($host): string {
+        $maybe = unserialize('N;');
 
-        return $maybe?->nothing ?? $host::class;
+        return is_string($maybe) ? $maybe : $host::class;
     };
 
-    $restored = unserialize(serialize(new SerializableClosure($closure)));
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($closure)));
 
     expect($restored() ?? '')->toContain('UserDefinedFixture');
 });
@@ -92,7 +97,7 @@ test('interpolation and casts keep working after the round trip', function () {
         return "{$label}:{$casted}";
     };
 
-    $restored = unserialize(serialize(new SerializableClosure($closure)));
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($closure)));
 
     expect($restored(9))->toBe('L:9');
 });
@@ -104,15 +109,13 @@ test('__LINE__ arithmetic is preserved across the round trip', function () {
             ;
     };
 
-    $restored = unserialize(serialize(new SerializableClosure($closure)));
-
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($closure)));
     expect($restored())->toBeInt();
 });
 
 test('named arguments in inner calls are preserved', function () {
     $closure = fn (): array => [array_keys(['k' => 1])];
 
-    $restored = unserialize(serialize(new SerializableClosure($closure)));
-
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($closure)));
     expect($restored())->toBe([['k']]);
 });

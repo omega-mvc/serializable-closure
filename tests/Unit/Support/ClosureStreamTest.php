@@ -13,11 +13,43 @@
 
 declare(strict_types=1);
 
+namespace Tests\Unit\Support;
+
+use Closure;
+use Exception;
+use Omega\SerializableClosure\SerializableClosure;
 use Omega\SerializableClosure\Support\ClosureStream;
 
 function closureStreamUrl(string $code): string
 {
     return ClosureStream::STREAM_PROTO . '://' . $code;
+}
+
+/**
+ * Opens a closure stream handle, failing loudly when unavailable.
+ *
+ * @return resource Return the stream handle.
+ */
+function openStream(string $code)
+{
+    $handle = fopen(closureStreamUrl($code), 'rb');
+
+    if (! is_resource($handle)) {
+        throw new Exception('Cannot open the closure stream.');
+    }
+
+    return $handle;
+}
+
+function restoredFrom(string $payload): SerializableClosure
+{
+    $restored = unserialize($payload);
+
+    if (! $restored instanceof SerializableClosure) {
+        throw new Exception('Unexpected restored type.');
+    }
+
+    return $restored;
 }
 
 test('the stream wrapper registers under its custom protocol', function () {
@@ -34,9 +66,7 @@ test('registration is idempotent', function () {
 });
 
 test('reading the stream yields php code returning the closure source', function () {
-    $handle = fopen(closureStreamUrl('fn (): int => 1'), 'rb');
-
-    expect($handle)->toBeResource();
+    $handle = openStream('fn (): int => 1');
 
     $contents = (string) stream_get_contents($handle);
     fclose($handle);
@@ -45,7 +75,7 @@ test('reading the stream yields php code returning the closure source', function
 });
 
 test('eof is reached after the whole payload has been read', function () {
-    $handle = fopen(closureStreamUrl('42;'), 'rb');
+    $handle = openStream('42;');
 
     expect(feof($handle))->toBeFalse();
 
@@ -57,11 +87,14 @@ test('eof is reached after the whole payload has been read', function () {
 });
 
 test('stream_stat exposes the payload length', function () {
-    $handle = fopen(closureStreamUrl('return 7;'), 'rb');
+    $handle = openStream('return 7;');
+    $stats = fstat($handle);
 
-    $expected = strlen("<?php\nreturn return 7;;");
+    if (! is_array($stats)) {
+        throw new Exception('Cannot stat the closure stream.');
+    }
 
-    expect(fstat($handle)['size'])->toBe($expected);
+    expect($stats['size'])->toBe(strlen("<?php\nreturn return 7;;"));
 
     fclose($handle);
 });
@@ -71,20 +104,24 @@ test('url_stat answers stat() calls with a zero length placeholder', function ()
     // so the reported size is the null-coalesced default.
     $stats = stat(closureStreamUrl('42;'));
 
+    if (! is_array($stats)) {
+        throw new Exception('Cannot stat the closure stream url.');
+    }
+
     expect($stats['size'])->toBe(0)
         ->and($stats[7])->toBe(0);
 });
 
 test('set_option is not supported and reports false', function () {
-    $handle = fopen(closureStreamUrl('42;'), 'rb');
+    $handle = openStream('42;');
 
-    expect(@stream_set_blocking($handle, false))->toBeFalse();
+    expect(stream_set_blocking($handle, false))->toBeFalse();
 
     fclose($handle);
 });
 
 test('seeking within bounds moves the read pointer', function () {
-    $handle = fopen(closureStreamUrl('1234567890'), 'rb');
+    $handle = openStream('1234567890');
     fread($handle, 7); // "<?php\nr"
 
     expect(ftell($handle))->toBe(7)
@@ -100,13 +137,13 @@ test('seeking within bounds moves the read pointer', function () {
 test('stream_seek resolves relative whences the engine never forwards', function () {
     // fseek() forwards only absolute seeks to userland wrappers; SEEK_CUR and
     // SEEK_END branches are exercised directly on the wrapper instance.
-    $reflection = new ReflectionClass(ClosureStream::class);
+    $reflection = new \ReflectionClass(ClosureStream::class);
     $instance = $reflection->newInstanceWithoutConstructor();
 
-    $length = new ReflectionProperty(ClosureStream::class, 'length');
+    $length = new \ReflectionProperty(ClosureStream::class, 'length');
     $length->setValue($instance, 10);
 
-    $pointer = new ReflectionProperty(ClosureStream::class, 'pointer');
+    $pointer = new \ReflectionProperty(ClosureStream::class, 'pointer');
 
     expect($instance->stream_seek(2, SEEK_CUR))->toBeTrue()
         ->and($pointer->getValue($instance))->toBe(2)

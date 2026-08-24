@@ -22,4 +22,10 @@
             <directory>src</directory>
         </include>
     </source>
+
+    <coverage pathCoverage="true">
+        <report>
+            <html outputDirectory="cache/coverage"/>
+        </report>
+    </coverage>
 </phpunit>

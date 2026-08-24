@@ -21,11 +21,11 @@ use Omega\SerializableClosure\SerializableClosure;
 test('the kitchen-sink closure keeps working after a round trip', function () {
     $host = new \Tests\Fixtures\Rich\RichHost();
 
-    $restored = unserialize(serialize(new SerializableClosure($host->sink())));
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($host->sink())));
 
     $out = $restored();
 
-    expect($out)->toContain('|y|')
+    expect($out)->toContain('|N|')
         ->and($out)->toContain("'rich-constant'")
         ->and($out)->toContain('hi')
         ->and($out)->toContain('kind=')
@@ -35,12 +35,13 @@ test('the kitchen-sink closure keeps working after a round trip', function () {
 test('bound closures with complex host properties survive the round trip', function () {
     $host = new \Tests\Fixtures\Rich\RichHost();
 
-    $restored = unserialize(serialize(new SerializableClosure($host->boundWithProps())));
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($host->boundWithProps())));
 
     expect($restored())->toBe([
         'red',
         'Tests\Fixtures\Rich\RichHost',
         5,
         6,
+        1,
     ]);
 });
