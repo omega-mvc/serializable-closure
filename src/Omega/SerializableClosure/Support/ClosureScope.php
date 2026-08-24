@@ -50,4 +50,27 @@ final class ClosureScope extends SplObjectStorage
      * @var int Holds the number of closure that have to be serialized.
      */
     public int $toSerialize = 0;
+
+    /**
+     * Registers a new serialization pass within this scope.
+     *
+     * @return void
+     */
+    public function beginSerialization(): void
+    {
+        ++$this->serializations;
+    }
+
+    /**
+     * Marks a serialization pass as complete.
+     *
+     * @return bool Return true when every pending serialization has finished and the scope can be discarded.
+     */
+    public function finishSerialization(): bool
+    {
+        --$this->serializations;
+        --$this->toSerialize;
+
+        return $this->serializations === 0 && $this->toSerialize === 0;
+    }
 }

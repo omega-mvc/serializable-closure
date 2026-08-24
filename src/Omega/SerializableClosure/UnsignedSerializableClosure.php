@@ -19,9 +19,6 @@ use Closure;
 use Omega\SerializableClosure\Serializers\SerializableInterface;
 use Omega\SerializableClosure\Serializers\Native;
 
-use function call_user_func_array;
-use function func_get_args;
-
 /**
  * Unsigned serializable closure class.
  *
@@ -62,9 +59,9 @@ class UnsignedSerializableClosure
      *
      * @return mixed
      */
-    public function __invoke(): mixed
+    public function __invoke(mixed ...$args): mixed
     {
-        return call_user_func_array($this->serializable, func_get_args());
+        return ($this->serializable)(...$args);
     }
 
     /**

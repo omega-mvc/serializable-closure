@@ -128,9 +128,9 @@ final class Native implements SerializableInterface
     /**
      * {@inheritdoc}
      */
-    public function __invoke(): mixed
+    public function __invoke(mixed ...$args): mixed
     {
-        return call_user_func_array($this->getClosure(), func_get_args());
+        return ($this->getClosure())(...$args);
     }
 
     /**
@@ -219,7 +219,7 @@ final class Native implements SerializableInterface
 
         $closureScope = $this->scope;
 
-        ++$closureScope->serializations;
+        $closureScope->beginSerialization();
 
         $object  = null;
         $scope   = null;
@@ -263,7 +263,7 @@ final class Native implements SerializableInterface
             'self'     => $this->reference,
         ];
 
-        if (! --$closureScope->serializations && ! --$closureScope->toSerialize) {
+        if ($closureScope->finishSerialization()) {
             $this->scope = null;
         }
 

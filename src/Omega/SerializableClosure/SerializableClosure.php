@@ -25,8 +25,6 @@ use Omega\SerializableClosure\Serializers\SerializableInterface;
 use Omega\SerializableClosure\Signers\Hmac;
 use stdClass;
 
-use function call_user_func_array;
-use function func_get_args;
 use function get_class;
 use function is_object;
 use function serialize;
@@ -49,6 +47,15 @@ use function serialize;
  */
 class SerializableClosure
 {
+    /** Key marking an array payload as an encoded anonymous class. */
+    public const string ANONYMOUS_CLASS_FLAG = '__anonymous_class';
+
+    /** Key holding the encoded anonymous class name. */
+    public const string ANONYMOUS_CLASS_NAME = '__class_name';
+
+    /** Key holding the serialized payload of the encoded anonymous class. */
+    public const string ANONYMOUS_CLASS_DATA = '__class_data';
+
     /**
      * The closure's serializable.
      *
@@ -74,9 +81,9 @@ class SerializableClosure
      *
      * @return mixed
      */
-    public function __invoke(): mixed
+    public function __invoke(mixed ...$args): mixed
     {
-        return call_user_func_array($this->serializable, func_get_args());
+        return ($this->serializable)(...$args);
     }
 
     /**
@@ -238,7 +245,7 @@ class SerializableClosure
         $uses = Native::applyResolveHook($data['uses']);
 
         foreach ($uses as $variable => $value) {
-            if (is_array($value) && ($value['__anonymous_class'] ?? false)) {
+            if (is_array($value) && ($value[self::ANONYMOUS_CLASS_FLAG] ?? false)) {
                 // Restore the anonymous class instance
                 $uses[$variable] = $this->unserializeAnonymousClass($value);
             }
@@ -270,9 +277,9 @@ class SerializableClosure
     {
         // Customize the serialization of the anonymous class as needed
         return [
-            '__anonymous_class' => true,
-            '__class_name'      => get_class($object),
-            '__class_data'      => serialize($object),
+            self::ANONYMOUS_CLASS_FLAG => true,
+            self::ANONYMOUS_CLASS_NAME => get_class($object),
+            self::ANONYMOUS_CLASS_DATA => serialize($object),
         ];
     }
 
@@ -285,7 +292,7 @@ class SerializableClosure
      */
     protected function unserializeAnonymousClass(array $data): object
     {
-        $classData = $data['__class_data'] ?? null;
+        $classData = $data[self::ANONYMOUS_CLASS_DATA] ?? null;
 
         if (! is_string($classData)) {
             throw new ReflectionException('Invalid anonymous class payload: missing __class_data.');
