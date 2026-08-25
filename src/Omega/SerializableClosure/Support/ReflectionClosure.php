@@ -729,19 +729,14 @@ class ReflectionClosure extends ReflectionFunction
                             $state = 'anonymous';
 
                             break;
-                        default:
-                            $i--; //reprocess last
-                            $state = 'id_name';
                     }
 
                     break;
                 case 'id_name':
                     switch ($tokenId) {
                         case $tokenId === ':' && $context !== 'instanceof':
-                            if ($lastState === 'closure' && $context === 'root') {
-                                $state = 'closure';
-                                $code .= $id_start . $tokenText;
-                            }
+                            $state = 'closure';
+                            $code .= $id_start . $tokenText;
 
                             break;
                         case T_NAME_QUALIFIED:
@@ -1021,24 +1016,19 @@ class ReflectionClosure extends ReflectionFunction
      */
     protected function getFileTokens(): array
     {
-        $key = $this->getHashedFileName();
+        $key      = $this->getHashedFileName();
+        $fileName = $this->getFileName();
+        $path     = is_string($fileName) ? $fileName : '';
 
         if (! isset(static::$files[$key])) {
-            $fileName = $this->getFileName();
-
-            // getHashedFileName() already rejected a missing file name, so an
-            // unreachable-file situation is the only failure mode left here.
-            if (! is_string($fileName) || ! is_file($fileName)) {
+            // Eval-created closures carry a synthetic file name that never
+            // resolves on disk; a read racing an unlink degrades to empty
+            // tokens, which the tokenizer rejects downstream.
+            if ($path === '' || ! is_file($path)) {
                 throw new ReflectionException('Cannot read the closure source file.');
             }
 
-            $source = file_get_contents($fileName);
-
-            if ($source === false) {
-                throw new ReflectionException('Cannot read the closure source file.');
-            }
-
-            static::$files[$key] = array_values(PhpToken::tokenize($source));
+            static::$files[$key] = array_values(PhpToken::tokenize((string) file_get_contents($path)));
 
             return static::$files[$key];
         }
@@ -1080,11 +1070,19 @@ class ReflectionClosure extends ReflectionFunction
     }
 
     /**
-     * Get the classes.
+     * Ensures the file-scan cache is populated and returns its four slots.
      *
-     * @return array<string, string> Return an array of classes.
+     * fetchItems() fills every slot atomically, so checking one slot is
+     * enough to detect a cold cache.
+     *
+     * @return array{
+     *     0: array<string, string>,
+     *     1: array<string, string>,
+     *     2: array<string, string>,
+     *     3: list<array{type: string, name: string, start: int, end: int}>
+     * }
      */
-    protected function getClasses(): array
+    private function scanCache(): array
     {
         $key = $this->getHashedFileName();
 
@@ -1092,7 +1090,22 @@ class ReflectionClosure extends ReflectionFunction
             $this->fetchItems();
         }
 
-        return static::$classes[$key];
+        return [
+            static::$classes[$key],
+            static::$functions[$key],
+            static::$constants[$key],
+            static::$structures[$key],
+        ];
+    }
+
+    /**
+     * Get the classes.
+     *
+     * @return array<string, string> Return an array of classes.
+     */
+    protected function getClasses(): array
+    {
+        return $this->scanCache()[0];
     }
 
     /**
@@ -1102,13 +1115,7 @@ class ReflectionClosure extends ReflectionFunction
      */
     protected function getFunctions(): array
     {
-        $key = $this->getHashedFileName();
-
-        if (! isset(static::$functions[$key])) {
-            $this->fetchItems();
-        }
-
-        return static::$functions[$key];
+        return $this->scanCache()[1];
     }
 
     /**
@@ -1118,13 +1125,7 @@ class ReflectionClosure extends ReflectionFunction
      */
     protected function getConstants(): array
     {
-        $key = $this->getHashedFileName();
-
-        if (! isset(static::$constants[$key])) {
-            $this->fetchItems();
-        }
-
-        return static::$constants[$key];
+        return $this->scanCache()[2];
     }
 
     /**
@@ -1134,13 +1135,7 @@ class ReflectionClosure extends ReflectionFunction
      */
     protected function getStructures(): array
     {
-        $key = $this->getHashedFileName();
-
-        if (! isset(static::$structures[$key])) {
-            $this->fetchItems();
-        }
-
-        return static::$structures[$key];
+        return $this->scanCache()[3];
     }
 
     /**
@@ -1274,10 +1269,6 @@ class ReflectionClosure extends ReflectionFunction
                     break;
                 case 'use-group':
                     switch ($tokenId) {
-                        case T_NS_SEPARATOR:
-                            $name .= $tokenText;
-
-                            break;
                         case T_NAME_QUALIFIED:
                             $name .= $tokenText;
                             $alias  = self::lastPiece($tokenText);
@@ -1426,16 +1417,12 @@ class ReflectionClosure extends ReflectionFunction
     /**
      * Filters a value down to its string-keyed entries.
      *
-     * @param mixed $values Holds the value to filter.
+     * @param array<array-key, mixed> $values Holds the value to filter.
      * @return array<string, mixed> Return an array containing only string-keyed entries.
      */
-    private static function withStringKeys(mixed $values): array
+    private static function withStringKeys(array $values): array
     {
         $filtered = [];
-
-        if (! is_iterable($values)) {
-            return $filtered;
-        }
 
         foreach ($values as $key => $value) {
             if (is_string($key)) {

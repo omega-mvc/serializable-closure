@@ -727,6 +727,12 @@ test('new with a variable class name keeps the variable verbatim', function () {
     expect($code)->toContain('new $cls()');
 });
 
+test('named-argument colons survive code extraction', function () {
+    $code = reflect((new TokenizerEdgeCases())->namedArgumentsCall())->getCode();
+
+    expect($code)->toContain("strlen(string: 'abc')");
+});
+
 test('anonymous class ancestry resolves relative names', function () {
     $code = reflect((new TokenizerEdgeCases())->anonymousRelativeAncestry())->getCode();
 

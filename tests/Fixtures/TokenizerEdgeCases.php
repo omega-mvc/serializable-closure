@@ -274,6 +274,14 @@ class TokenizerEdgeCases
         };
     }
 
+    /** Named-argument colon flows through id_name back into the body state. */
+    public function namedArgumentsCall(): \Closure
+    {
+        return function (): int {
+            return strlen(string: 'abc');
+        };
+    }
+
     /** Anonymous class with relative string parent and qualified interface. */
     public function anonymousRelativeAncestry(): \Closure
     {

@@ -20,17 +20,17 @@ XDEBUG_MODE=coverage vendor/bin/pest --coverage   # HTML report in cache/coverag
 - **Pest dataset rows must be positional argument lists** (`[payload, expected]`, optionally keyed by case name for output): rows written as associative maps keep passing their assertions yet still produce the exit-code-1 symptom above.
 - **Coverage runs are xdebug-heavy**: plain `--path-coverage` on the whole Support suite can segfault (`double free or corruption`); prefer the default `vendor/bin/pest --coverage`, and if it aborts, rerun or split by suite file.
 
-## Coverage plateau (line coverage ~99%)
+## Line coverage 100% (by design)
 
-The remaining uncovered lines in `Support/ReflectionClosure.php` are not test gaps:
+`Support/ReflectionClosure.php` reaches 100% because dead defensive code was removed deliberately:
 
-- `1038` — `file_get_contents() === false` race guard: the file was just stat-verified; no seam to trigger.
-- `1437` — `withStringKeys()` non-iterable early return: `getStaticVariables()` always returns an array.
-- `1278..1280` — T_NS_SEPARATOR inside a group-use: PHP grammar forbids leading-backslash entries in groups.
-- `733..734`, `741..746` — tokenizer fallback arms unreachable with the PHP ≥ 8 token stream (identifiers arrive pre-collapsed as T_NAME_*; ternary `:` cannot follow an instanceof-context identifier).
-- `1108`, `1140` — **attribution anomaly**: proven executed (disk-log instrumentation fires during coverage runs) yet reported uncovered. Do not chase them with more tests.
+- The four per-file cache getters (`getClasses/getFunctions/getConstants/getStructures`) delegate to one `scanCache()` holding the single `fetchItems()` call site — `fetchItems()` populates every slot atomically. Before consolidation, two of the four lazy-fetch lines executed but were never credited by xdebug/php-code-coverage (attribution anomaly); a single call site made the whole class measurable.
+- `getFileTokens()` keeps the eval-path `is_file()` rejection but no longer guards `file_get_contents() === false`: a read racing an unlink degrades to empty tokens, which the tokenizer rejects downstream.
+- `ReflectionClosure::withStringKeys()` takes an `array` (its only caller passes `getStaticVariables()`); the non-iterable early return was unreachable. (`Native::withStringKeys()` keeps its mixed-typed copy.)
+- Tokenizer arms that PHP ≥ 8 cannot reach were deleted: `id_start`'s default-reprocess fallback and the `use-group` `T_NS_SEPARATOR` case (leading-backslash entries are a grammar error inside groups).
+- `id_name`'s `:` handling is unconditional (named arguments and goto labels flow through it); the old `lastState === 'closure' && $context === 'root'` else-path was grammar-shadow.
 
-Related trap: `use \Class`, `use function \f` and `use const \C` collapse into one T_NAME_FULLY_QUALIFIED token that `fetchItems()` ignores, so leading-backslash imports resolve to a bare `\` prefix (asserted as such in `FetchScanProbe` tests).
+Do not reintroduce these guards without re-opening the coverage question.
 
 ## Hard-won facts
 
