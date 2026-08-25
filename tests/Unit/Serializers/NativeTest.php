@@ -338,6 +338,36 @@ test('resolve hooks without entries keep the payload untouched', function () {
     expect($native->getClosure()())->toBe(8);
 });
 
+test('the same captured closure maps to a single shared wrapper', function () {
+    $scoped = withScope(nativeOf(fn (): int => 1), new ClosureScope());
+    $method = new ReflectionMethod(Native::class, 'mapByReference');
+    $method->setAccessible(true);
+
+    $shared = fn (): int => 9;
+    $uses = ['first' => $shared, 'second' => $shared];
+
+    $args = [&$uses];
+    $method->invokeArgs($scoped, $args);
+
+    expect($uses['first'])->toBeInstanceOf(Native::class)
+        ->and($uses['second'])->toBe($uses['first']);
+});
+
+test('the same captured object maps to a single rebuilt instance', function () {
+    $scoped = withScope(nativeOf(fn (): int => 1), new ClosureScope());
+    $method = new ReflectionMethod(Native::class, 'mapByReference');
+    $method->setAccessible(true);
+
+    $object = new \Tests\Fixtures\UserDefinedFixture();
+    $uses = ['one' => $object, 'two' => $object];
+
+    $args = [&$uses];
+    $method->invokeArgs($scoped, $args);
+
+    expect($uses['one'])->not->toBe($object)
+        ->and($uses['two'])->toBe($uses['one']);
+});
+
 test('self-referencing closure in use variables maps via SelfReference', function () {
     $outer = fn (): int => 1;
     $native = nativeOf($outer);

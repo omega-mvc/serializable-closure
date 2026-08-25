@@ -143,6 +143,65 @@ test('the same captured closure is serialized once and stays shared', function (
     expect($restored())->toBe(14);
 });
 
+test('recursive self-referencing closures survive the round trip', function () {
+    $f = function (int $n = 0) use (&$f) {
+        return $n < 2 ? ($f)($n + 1) : $n;
+    };
+
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($f)));
+
+    expect($restored())->toBe(2);
+});
+
+test('self-references nested in arrays and stdclass rewire after restore', function () {
+    $holder = new stdClass();
+    $holder->fn = static fn (): string => 'placeholder';
+
+    $box = ['cb' => $holder];
+
+    $f = function () use (&$box): string {
+        $ref = $box;
+
+        return 'restored';
+    };
+
+    $holder->fn = &$f;
+
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($f)));
+
+    expect($restored())->toBe('restored');
+});
+
+test('circular captured arrays survive the round trip', function () {
+    $loop = [];
+    $loop['me'] = &$loop;
+
+    $closure = fn (): int => count($loop);
+
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($closure)));
+
+    expect($restored())->toBe(1);
+});
+
+test('aliased stdclass holders share one reconstructed instance', function () {
+    $shared = new stdClass();
+    $shared->marker = 'same';
+
+    $holderA = new stdClass();
+    $holderB = new stdClass();
+
+    $holderA->link = $shared;
+    $holderB->link = $shared;
+
+    $closure = function () use ($shared, $holderA, $holderB): bool {
+        return $holderA->link === $shared && $holderB->link === $shared;
+    };
+
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($closure)));
+
+    expect($restored())->toBeTrue();
+});
+
 test('the same captured object keeps a single identity after the round trip', function () {
     $counter = new UserDefinedFixture();
     $alias   = $counter;

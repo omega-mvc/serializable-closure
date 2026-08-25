@@ -6,7 +6,8 @@ Single-package PHP library (`omega-mvc/serializable-closure`) that makes closure
 
 ```sh
 composer install              # dev deps: pest, phpstan, php_codesniffer
-composer test                 # Pest suite (phpunit.xml config)
+composer test                 # Pest suite with coverage (XDEBUG_MODE=coverage)
+composer test-no-coverage     # Pest suite without coverage (XDEBUG_MODE=off)
 composer phpstan              # level 10 over src/ + tests/
 composer phpcs                # PSR-12 over src/ + tests/
 vendor/bin/pest --filter=X    # single test / filter
