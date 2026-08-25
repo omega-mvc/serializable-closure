@@ -36,11 +36,11 @@ Do not reintroduce these guards without re-opening the coverage question.
 
 ### Branch / path coverage reality check
 
-Lines sit at 100%; the other report metrics do not, on purpose:
+Lines sit at 100%; the other report metrics do not, **deliberately**: `pathCoverage="true"` stays on — reporting the ugly numbers beats hiding them.
 
-- **Branches ~99%**: the handful of "warning" rows in `*_branch.html` are deterministic xdebug/php-code-coverage attribution misses — instrumented runs prove both outcomes execute (e.g. the `#trackme` if fires TRUE and FALSE on disk while still being flagged). Two more (`case T_CLASS:` in `id_start`, `case 'anonymous':`) lost their skip-outcome when the unreachable `default:` arm was deleted; no valid token falls through those comparisons anymore. Do not chase any of them with more tests.
-- **Paths (~0.5%)**: 4885 distinct paths run through the two tokenizer state machines; covering them is combinatorial, not testable by curation.
-- **Functions/methods & classes** percentages in path-coverage mode are derived from full-path coverage per method, so they trail the path number — they are not an independent signal of untested code.
+- **Branches fluctuate between runs on identical code** (observed 97.4%–98.5%): part of the "misses" are deterministic xdebug/php-code-coverage attribution misses — instrumented runs prove both outcomes execute (e.g. the `#trackme` if fires TRUE and FALSE on disk while still being flagged). Two arcs (`case T_CLASS:` in `id_start`, `case 'anonymous':`) lost their skip-outcome when the unreachable `default:` arm was deleted; no valid token falls through those comparisons anymore. Never quote a single-run branch figure as exact.
+- **Paths (~0.5%)**: `getCode()` alone exposes 4096 = 2^12 paths from ~12 binary decision points — the count is arithmetic on the state machine, not a backlog. Covering them is combinatorial, not testable by curation.
+- **Functions/methods & classes** trail the path number in path-coverage mode (methods require every arc of the method; `getCode()`/`fetchItems()` can therefore never read "covered"). Observed methods range across runs: 75%–89%. They are not an independent signal of untested code.
 
 ## Hard-won facts
 
