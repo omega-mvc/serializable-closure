@@ -19,9 +19,11 @@ use Closure;
 use stdClass;
 use Tests\Fixtures\Colorable;
 use DateTimeImmutable as DT;
+
 use function array_keys as ak;
 use function count as count_all;
 use function strlen;
+
 use const PHP_EOL as EOL;
 use const PHP_INT_SIZE;
 
@@ -125,7 +127,10 @@ class RichHost implements Wearable
         function (
             #[\SensitiveParameter] string $prefix = EOL,
             ?DT $when = null,
-        ) use ($local, $intSize): string {
+        ) use (
+            $local,
+            $intSize
+): string {
             /** docblock inside the body */
             // plain comment inside the body
             #trackme

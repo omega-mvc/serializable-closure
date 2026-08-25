@@ -242,6 +242,7 @@ test('the kitchen-sink closure keeps working after a round trip', function () {
         $host->sink()
     )));
 
+    assert($restored instanceof \Omega\SerializableClosure\SerializableClosure);
     expect($restored())->toContain('|N|');
 });
 
@@ -255,9 +256,8 @@ final class TrickyHost
 
         return function () use ($memo): callable {
             if ($memo < 0) {
-                function ghost(): void
-                {
-                }
+                $ghost = function (): void {
+                };
             }
 
             return fn (): int => 5;

@@ -30,8 +30,10 @@
   },
   "scripts": {
     "phpcs": "XDEBUG_MODE=off php vendor/bin/phpcs",
+    "phpcbf": "XDEBUG_MODE=off php vendor/bin/phpcbf --standard=PSR12",
     "phpstan": "XDEBUG_MODE=off php vendor/bin/phpstan analyse",
-    "test": "XDEBUG_MODE=off php vendor/bin/pest --no-coverage"
+    "test-no-coverage": "XDEBUG_MODE=off php vendor/bin/pest --no-coverage",
+    "test": "XDEBUG_MODE=coverage vendor/bin/pest --coverage"
   },
   "minimum-stability": "stable",
   "require-dev": {

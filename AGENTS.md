@@ -6,13 +6,14 @@ Single-package PHP library (`omega-mvc/serializable-closure`) that makes closure
 
 ```sh
 composer install              # dev deps: pest, phpstan, php_codesniffer
-composer test                 # Pest suite (phpunit.xml config)
+composer test                 # Pest suite with coverage (XDEBUG_MODE=coverage)
+composer test-no-coverage     # Pest suite without coverage (XDEBUG_MODE=off)
 composer phpstan              # level 10 over src/ + tests/
 composer phpcs                # PSR-12 over src/ + tests/
 vendor/bin/pest --filter=X    # single test
 ```
 
-All scripts run with `XDEBUG_MODE=off`. `composer.lock` and `/cache/` are gitignored — don't commit the lockfile, ignore untracked caches.
+`composer.lock` and `/cache/` are gitignored — don't commit the lockfile, ignore untracked caches.
 
 ## Hard-won facts
 
