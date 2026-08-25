@@ -282,6 +282,66 @@ class TokenizerEdgeCases
         };
     }
 
+    /** Named function on the same line restarts through the static arm. */
+    public function namedFunctionBeforeStatic(): \Closure
+    {
+        function tokenizerEdgeProbeC4() {} return static function () {
+            return 6;
+        };
+    }
+
+    /** Magic constants in body resolve against the walker's metadata. */
+    public function magicConstantsInBody(): \Closure
+    {
+        return function (): string {
+            return __CLASS__ . __FUNCTION__ . __METHOD__ . __LINE__;
+        };
+    }
+
+    /** Magic constants inside an anonymous class stay verbatim. */
+    public function magicConstantsInsideStructure(): \Closure
+    {
+        return function (): string {
+            $probe = new class {
+                public function label(): string
+                {
+                    return __CLASS__ . __FUNCTION__ . __METHOD__;
+                }
+            };
+
+            return $probe->label();
+        };
+    }
+
+    /** A #trackme comment triggers the timestamp rewrite. */
+    public function trackmeComment(): \Closure
+    {
+        return function (): int {
+            #trackme
+            return 7;
+        };
+    }
+
+    /** Closure capturing one variable by value. */
+    public function useByValue(): \Closure
+    {
+        $v = 1;
+
+        return function () use ($v): int {
+            return $v;
+        };
+    }
+
+    /** Closure capturing one variable by reference. */
+    public function useByReference(): \Closure
+    {
+        $v = 1;
+
+        return function () use (&$v): int {
+            return $v;
+        };
+    }
+
     /** Anonymous class with relative string parent and qualified interface. */
     public function anonymousRelativeAncestry(): \Closure
     {

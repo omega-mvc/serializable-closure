@@ -29,8 +29,18 @@ XDEBUG_MODE=coverage vendor/bin/pest --coverage   # HTML report in cache/coverag
 - `ReflectionClosure::withStringKeys()` takes an `array` (its only caller passes `getStaticVariables()`); the non-iterable early return was unreachable. (`Native::withStringKeys()` keeps its mixed-typed copy.)
 - Tokenizer arms that PHP ≥ 8 cannot reach were deleted: `id_start`'s default-reprocess fallback and the `use-group` `T_NS_SEPARATOR` case (leading-backslash entries are a grammar error inside groups).
 - `id_name`'s `:` handling is unconditional (named arguments and goto labels flow through it); the old `lastState === 'closure' && $context === 'root'` else-path was grammar-shadow.
+- `$nsf` no longer special-cases a leading-backslash namespace: `getNamespaceName()` can never return one.
+- `getHashedFileName()` caches the validated file name in `$fileName`; `getFileTokens()` reads it without re-validating.
 
 Do not reintroduce these guards without re-opening the coverage question.
+
+### Branch / path coverage reality check
+
+Lines sit at 100%; the other report metrics do not, on purpose:
+
+- **Branches ~99%**: the handful of "warning" rows in `*_branch.html` are deterministic xdebug/php-code-coverage attribution misses — instrumented runs prove both outcomes execute (e.g. the `#trackme` if fires TRUE and FALSE on disk while still being flagged). Two more (`case T_CLASS:` in `id_start`, `case 'anonymous':`) lost their skip-outcome when the unreachable `default:` arm was deleted; no valid token falls through those comparisons anymore. Do not chase any of them with more tests.
+- **Paths (~0.5%)**: 4885 distinct paths run through the two tokenizer state machines; covering them is combinatorial, not testable by curation.
+- **Functions/methods & classes** percentages in path-coverage mode are derived from full-path coverage per method, so they trail the path number — they are not an independent signal of untested code.
 
 ## Hard-won facts
 

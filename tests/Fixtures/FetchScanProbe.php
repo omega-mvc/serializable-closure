@@ -13,6 +13,7 @@ namespace Tests\Fixtures;
 
 use \ArrayObject;
 use Tests\Fixtures\{Suit as S2, Wearable, Grouped\GroupInterface as GI3};
+use ArrayIterator, SplStack;
 use function \count as cnt2;
 use function Tests\Fixtures\{tokenizerArraySort as tas};
 use const \PHP_EOL as EOL2;

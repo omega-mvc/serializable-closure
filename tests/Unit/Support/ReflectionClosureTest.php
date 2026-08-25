@@ -733,6 +733,61 @@ test('named-argument colons survive code extraction', function () {
     expect($code)->toContain("strlen(string: 'abc')");
 });
 
+test('isStatic memoizes its verdict on repeated calls', function () {
+    $rc = reflect((new TokenizerEdgeCases())->plainBracedClosure());
+
+    expect($rc->isStatic())->toBeFalse()
+        ->and($rc->isStatic())->toBeFalse();
+
+    $static = reflect(static fn (): int => 1);
+
+    expect($static->isStatic())->toBeTrue()
+        ->and($static->isStatic())->toBeTrue();
+});
+
+test('isShortClosure strips the static prefix before probing', function () {
+    $rc = reflect(static fn (): int => 2);
+
+    expect($rc->isShortClosure())->toBeTrue()
+        ->and($rc->isShortClosure())->toBeTrue();
+});
+
+test('named function followed by a static closure restarts through static', function () {
+    $code = reflect((new TokenizerEdgeCases())->namedFunctionBeforeStatic())->getCode();
+
+    expect($code)->toContain('static function ()')
+        ->and($code)->not->toContain('tokenizerEdgeProbeC4');
+});
+
+test('magic constants in body resolve against closure metadata', function () {
+    $code = reflect((new TokenizerEdgeCases())->magicConstantsInBody())->getCode();
+
+    expect($code)->toContain("'Tests\\\\Fixtures\\\\TokenizerEdgeCases'")
+        ->and($code)->toContain('{closure}');
+});
+
+test('magic constants inside an anonymous class stay verbatim', function () {
+    $code = reflect((new TokenizerEdgeCases())->magicConstantsInsideStructure())->getCode();
+
+    expect($code)->toContain('__CLASS__')
+        ->and($code)->toContain('__METHOD__');
+});
+
+test('trackme comments rewrite to a timestamped block', function () {
+    $code = reflect((new TokenizerEdgeCases())->trackmeComment())->getCode();
+
+    expect($code)->toContain('/**')
+        ->and($code)->toContain('* Date');
+});
+
+test('use clauses capture by value and by reference alike', function () {
+    $byValue = reflect((new TokenizerEdgeCases())->useByValue())->getUseVariables();
+    $byRef   = reflect((new TokenizerEdgeCases())->useByReference())->getUseVariables();
+
+    expect(array_keys($byValue))->toBe(['v'])
+        ->and(array_keys($byRef))->toBe(['v']);
+});
+
 test('anonymous class ancestry resolves relative names', function () {
     $code = reflect((new TokenizerEdgeCases())->anonymousRelativeAncestry())->getCode();
 
@@ -778,7 +833,13 @@ test('file-level scan covers grouped and leading-backslash imports', function ()
     // Leading-backslash imports (class, function or const) collapse into a
     // single T_NAME_FULLY_QUALIFIED token that the scanner ignores, leaving
     // a bare "\" prefix behind; grouped unqualified imports resolve fully.
-    expect(array_keys($rc->classes()))->toBe(['s2', 'wearable', 'gi3'])
+    expect(array_keys($rc->classes()))->toBe([
+        's2',
+        'wearable',
+        'gi3',
+        'arrayiterator',
+        'splstack',
+    ])
         ->and($rc->classes()['gi3'])->toBe('\Tests\Fixtures\Grouped\GroupInterface')
         ->and($rc->classes()['s2'])->toBe('\Tests\Fixtures\Suit')
         ->and($rc->functions())->toBe([
@@ -789,6 +850,15 @@ test('file-level scan covers grouped and leading-backslash imports', function ()
             'EOL2' => '\\',
             'PC2'  => '\ProbeConsts\PROBE_CONST',
         ]);
+});
+
+test('closures from the global namespace resolve empty metadata', function () {
+    require_once __DIR__ . '/../../Fixtures/GlobalProbe.php';
+
+    $code = reflect((new \GlobalProbe())->probe())->getCode();
+
+    expect($code)->toContain('static function')
+        ->and($code)->toContain('return 1');
 });
 
 test('closures without source code are rejected fail-fast', function () {

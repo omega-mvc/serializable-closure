@@ -109,6 +109,13 @@ class ReflectionClosure extends ReflectionFunction
     protected ?string $hashedName = null;
 
     /**
+     * Name of the closure source file.
+     *
+     * @var string Holds the closure source file name, empty when unknown.
+     */
+    protected string $fileName = '';
+
+    /**
      * Array of variables used in the closure.
      *
      * @var array<string, mixed>|null Holds an array of variables used in the closure or null.
@@ -259,7 +266,8 @@ class ReflectionClosure extends ReflectionFunction
         $class_keywords = ['self', 'static', 'parent'];
 
         $ns  = $this->getClosureNamespaceName();
-        $nsf = $ns == '' ? '' : ($ns[0] == '\\' ? $ns : '\\' . $ns);
+        // getNamespaceName() never returns a leading separator.
+        $nsf = $ns == '' ? '' : '\\' . $ns;
 
         $_file      = var_export($fileName, true);
         $_dir       = var_export(dirname($fileName), true);
@@ -1002,6 +1010,7 @@ class ReflectionClosure extends ReflectionFunction
                 throw new ReflectionException('Cannot determine the file name of the closure.');
             }
 
+            $this->fileName   = $fileName;
             $this->hashedName = sha1($fileName);
         }
 
@@ -1016,19 +1025,19 @@ class ReflectionClosure extends ReflectionFunction
      */
     protected function getFileTokens(): array
     {
+        // getHashedFileName() proved and cached the file name.
         $key      = $this->getHashedFileName();
-        $fileName = $this->getFileName();
-        $path     = is_string($fileName) ? $fileName : '';
+        $fileName = $this->fileName;
 
         if (! isset(static::$files[$key])) {
             // Eval-created closures carry a synthetic file name that never
             // resolves on disk; a read racing an unlink degrades to empty
             // tokens, which the tokenizer rejects downstream.
-            if ($path === '' || ! is_file($path)) {
+            if ($fileName === '' || ! is_file($fileName)) {
                 throw new ReflectionException('Cannot read the closure source file.');
             }
 
-            static::$files[$key] = array_values(PhpToken::tokenize((string) file_get_contents($path)));
+            static::$files[$key] = array_values(PhpToken::tokenize((string) file_get_contents($fileName)));
 
             return static::$files[$key];
         }
