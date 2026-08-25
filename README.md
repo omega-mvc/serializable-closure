@@ -227,6 +227,29 @@ The run generates an HTML report (lines, branches and paths) in
 `cache/coverage/index.html`. Plain `composer test` skips coverage on purpose:
 pass `--no-coverage` wherever a coverage driver is not available.
 
+#### Reading the coverage report honestly
+
+Line coverage sits at **100%**; the other metrics do not, and that is by
+design rather than by neglect:
+
+*   **Branches (~97–99%)**: a handful of arcs are flagged inconsistently
+    between runs on identical code. Instrumented runs prove both outcomes of
+    those decisions execute, so the misses are xdebug attribution noise, not
+    untested logic. Two further arcs lost their skip-outcome when unreachable
+    tokenizer fallback arms were deleted: no valid PHP token can route there.
+*   **Paths (<1%)**: `ReflectionClosure::getCode()` alone exposes 4096 = 2^12
+    distinct execution paths out of ~12 binary decision points in its
+    tokenizer state machine — the count is combinatorial arithmetic, not a
+    backlog of missing tests. Covering paths by hand is not feasible and
+    would add no behavioral assurance beyond the branch metric above.
+*   **Functions/methods & classes**: under path coverage these require every
+    path of the method to be hit, so `getCode()` can never read "fully
+    covered" and the class-level figure follows it down.
+
+`pathCoverage="true"` stays enabled on purpose: reporting the ugly numbers
+honestly beats hiding them. Because of the run-to-run fluctuation described
+above, never quote a single-run branch/method figure as exact.
+
 ## Static Analysis
 
 ```sh
