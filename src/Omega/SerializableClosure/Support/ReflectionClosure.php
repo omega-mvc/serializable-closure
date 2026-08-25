@@ -71,7 +71,8 @@ class ReflectionClosure extends ReflectionFunction
      *
      * @var list<non-empty-string>
      */
-    protected const array BUILTIN_TYPES = [
+    /** @var list<non-empty-string> */
+    protected const BUILTIN_TYPES = [
         'array',
         'callable',
         'string',

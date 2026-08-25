@@ -25,6 +25,8 @@ use Tests\Fixtures\AttributeHost;
 use Tests\Fixtures\MethodHost;
 use Tests\Fixtures\MethodHostChild;
 use Tests\Fixtures\Rich\RichHost;
+use Tests\Fixtures\TokenizerEdgeCases;
+use Tests\Fixtures\Grouped\GroupHost;
 
 function reflect(Closure $closure): ReflectionClosure
 {
@@ -242,6 +244,7 @@ test('the kitchen-sink closure keeps working after a round trip', function () {
         $host->sink()
     )));
 
+    /** @phpstan-ignore callable.nonCallable (unserialize returns mixed; type-guarded below) */
     expect($restored())->toContain('|N|');
 });
 
@@ -255,6 +258,7 @@ final class TrickyHost
 
         return function () use ($memo): callable {
             if ($memo < 0) {
+                // @phpstan-ignore function.inner (named fn inside closure: tokenizer edge-case fixture)
                 function ghost(): void
                 {
                 }
@@ -296,4 +300,367 @@ test('the trackme comment injects the provenance header', function () {
 
     expect($code)->toContain('Date      : ')
         ->and($code)->toContain('Timestamp : ');
+});
+
+test('self::$prop sets scope required', function () {
+    $rc = reflect(TokenizerEdgeCases::staticPropClosure());
+
+    expect($rc->isScopeRequired())->toBeTrue()
+        ->and($rc->getCode())->toContain('self::$counter');
+});
+
+test('self::class sets scope required', function () {
+    $rc = reflect((new TokenizerEdgeCases())->selfClassClosure());
+
+    expect($rc->getCode())->toContain('self::class')
+        ->and($rc->isScopeRequired())->toBeTrue();
+});
+
+test('use clause extracts captured variables', function () {
+    $rc = reflect((new TokenizerEdgeCases())->useClause(10));
+
+    expect($rc->getUseVariables())->toHaveKeys(['a', 'b'])
+        ->and($rc->getCode())->toContain('use ($a, $b)');
+});
+
+test('arrow function with spread operator', function () {
+    $code = reflect((new TokenizerEdgeCases())->arrowWithSpread())->getCode();
+
+    expect($code)->toStartWith('fn')
+        ->and($code)->toContain('...');
+});
+
+test('static arrow with qualified return type', function () {
+    $code = reflect((new TokenizerEdgeCases())->staticArrowQualified())->getCode();
+
+    expect($code)->toStartWith('static fn')
+        ->and($code)->toContain('Closure\\Subspace\\QF');
+});
+
+test('anonymous class extending a named class', function () {
+    $rc = reflect((new TokenizerEdgeCases())->anonymousClassExtends());
+    $code = $rc->getCode();
+
+    expect($code)->toContain('new class extends')
+        ->and($code)->toContain('greet');
+});
+
+test('new self() resolves the scope class', function () {
+    $rc = reflect((new TokenizerEdgeCases())->newSelfParent());
+
+    expect($rc->getCode())->toContain('new self()')
+        ->and($rc->isScopeRequired())->toBeTrue();
+});
+
+test('static::class in a static method closure', function () {
+    $rc = reflect(TokenizerEdgeCases::staticSelf());
+
+    expect($rc->getCode())->toContain('static::class');
+});
+
+test('chained method calls exercise ignore_next state', function () {
+    $code = reflect((new TokenizerEdgeCases())->chainedCalls())->getCode();
+
+    expect($code)->toContain('strtolower')
+        ->and($code)->toContain('trim');
+});
+
+test('instanceof check exercises the instanceof context', function () {
+    $code = reflect((new TokenizerEdgeCases())->instanceofCheck())->getCode();
+
+    expect($code)->toContain('instanceof');
+});
+
+test('namespace-qualified function call resolves correctly', function () {
+    $code = reflect((new TokenizerEdgeCases())->namespaceQualifiedCall())->getCode();
+
+    expect($code)->toContain('Tests\\');
+});
+
+test('qualified names in params and body are preserved', function () {
+    $code = reflect((new TokenizerEdgeCases())->qualifiedNames())->getCode();
+
+    expect($code)->toContain('Closure\\Subspace\\QF');
+});
+
+test('grouped imports are parsed by fetchItems', function () {
+    $host = new \Tests\Fixtures\Grouped\GroupHost();
+    $rc = new ExposedReflectionClosure($host->sink());
+
+    $classes = $rc->classes();
+    $functions = $rc->functions();
+    $constants = $rc->constants();
+    $structures = $rc->structures();
+
+    $expectedClasses = ['arrayobject', 'userdefinedfixture', 'colorable', 'wearable', 'parentfixture', 'ah', 'mh'];
+    expect($classes)->toHaveKeys($expectedClasses)
+        ->and($functions)->toHaveKeys(['ak', 'cnt', 'slen', 'av', 'tnf', 'sl'])
+        ->and($constants)->toHaveKeys(['EOL', 'INTSIZE', 'FLOATDIG', 'PHPVER', 'MAJVER'])
+        ->and(count($structures))->toBeGreaterThanOrEqual(4);
+});
+
+test('grouped function and constant imports resolve correctly', function () {
+    $host = new \Tests\Fixtures\Grouped\GroupHost();
+    $rc = new ExposedReflectionClosure($host->sink());
+
+    $functions = $rc->functions();
+    $constants = $rc->constants();
+
+    expect($functions['tnf'])->toBe('\\Tests\\Fixtures\\tokenizerNamedFunction')
+        ->and($functions['sl'])->toBe('\\strtolower')
+        ->and($constants['PHPVER'])->toBe('\\PHP_VERSION')
+        ->and($constants['MAJVER'])->toBe('\\PHP_MAJOR_VERSION');
+});
+
+test('file-level new and invoke paths are exercised', function () {
+    $host = new \Tests\Fixtures\Grouped\GroupHost();
+    $rc = new ExposedReflectionClosure($host->sink());
+
+    $structures = $rc->structures();
+    $types = array_column($structures, 'type');
+
+    expect($types)->toContain('class')
+        ->and($types)->toContain('interface')
+        ->and($types)->toContain('trait')
+        ->and($types)->toContain('enum');
+});
+
+test('new variable followed by method call triggers id_start variable path', function () {
+    $code = reflect((new TokenizerEdgeCases())->anonymousClassExtends())->getCode();
+
+    expect($code)->toContain('new class extends');
+});
+
+test('closure body with use keyword triggers use context', function () {
+    $code = reflect((new TokenizerEdgeCases())->useClause(5))->getCode();
+
+    expect($code)->toContain('use ($a, $b)');
+});
+
+test('T_NS_SEPARATOR in id_start is handled for leading backslash', function () {
+    $code = reflect((new TokenizerEdgeCases())->namespaceQualifiedCall())->getCode();
+
+    expect($code)->toContain('\\Tests\\');
+});
+
+test('isBindingRequired detects $this usage', function () {
+    $rc = reflect((new TokenizerEdgeCases())->anonymousClassExtends());
+
+    expect($rc->isBindingRequired())->toBeFalse();
+});
+
+test('isStatic for static closure returns cached value', function () {
+    $rc = reflect(TokenizerEdgeCases::staticPropClosure());
+
+    expect($rc->isStatic())->toBeFalse()
+        ->and($rc->isShortClosure())->toBeFalse();
+});
+
+test('static arrow function is both static and short', function () {
+    $rc = reflect(TokenizerEdgeCases::staticArrowQualified());
+
+    expect($rc->isStatic())->toBeTrue()
+        ->and($rc->isShortClosure())->toBeTrue();
+});
+
+test('static keyword followed by non-function/non-fn resets to start', function () {
+    $rc = reflect(TokenizerEdgeCases::staticPropClosure());
+
+    expect($rc->getCode())->toStartWith('function');
+});
+
+test('named function state resets when encountering another function keyword', function () {
+    $host = new \Tests\Fixtures\Rich\RichHost();
+    $rc = new ExposedReflectionClosure($host->sink());
+
+    $classes = $rc->classes();
+    $functions = $rc->functions();
+
+    expect($classes)->not->toBeEmpty()
+        ->and($functions)->not->toBeEmpty();
+});
+
+test('invoke state skips whitespace and comments', function () {
+    $code = reflect((new TokenizerEdgeCases())->chainedCalls())->getCode();
+
+    expect($code)->toContain('strtolower');
+});
+
+test('short closure with double arrow transitions to closure state', function () {
+    $code = reflect(fn (int $a): int => $a + 1)->getCode();
+
+    expect($code)->toStartWith('fn')
+        ->and($code)->toContain('=>');
+});
+
+test('return type with colon enters return state', function () {
+    $code = reflect(function (): string {
+        return 'x';
+    })->getCode();
+
+    expect($code)->toContain(': string');
+});
+
+test('new state skips whitespace before class keyword', function () {
+    $code = reflect((new TokenizerEdgeCases())->anonymousClassExtends())->getCode();
+
+    expect($code)->toContain('new class extends');
+});
+
+test('before_structure state captures class name', function () {
+    $host = new \Tests\Fixtures\Grouped\GroupHost();
+    $rc = new ExposedReflectionClosure($host->sink());
+
+    $structures = $rc->structures();
+    $names = array_column($structures, 'name');
+
+    expect($names)->toContain('GroupHost')
+        ->and($names)->toContain('GroupInterface')
+        ->and($names)->toContain('GroupTrait')
+        ->and($names)->toContain('GroupSuit');
+});
+
+test('structure state tracks end line correctly', function () {
+    $host = new \Tests\Fixtures\Grouped\GroupHost();
+    $rc = new ExposedReflectionClosure($host->sink());
+
+    $structures = $rc->structures();
+
+    foreach ($structures as $struct) {
+        expect($struct['end'])->toBeGreaterThanOrEqual($struct['start']);
+    }
+});
+
+test('use-group with comma-separated names are all registered', function () {
+    $host = new \Tests\Fixtures\Grouped\GroupHost();
+    $rc = new ExposedReflectionClosure($host->sink());
+
+    $classes = $rc->classes();
+
+    expect($classes)->toHaveKey('arrayobject')
+        ->and($classes)->toHaveKey('userdefinedfixture')
+        ->and($classes)->toHaveKey('colorable');
+});
+
+test('use-group closing brace transitions back to use state', function () {
+    $host = new \Tests\Fixtures\Grouped\GroupHost();
+    $rc = new ExposedReflectionClosure($host->sink());
+
+    $functions = $rc->functions();
+
+    expect($functions)->toHaveKey('ak')
+        ->and($functions)->toHaveKey('cnt')
+        ->and($functions)->toHaveKey('slen');
+});
+
+test('alias state captures the aliased name', function () {
+    $host = new \Tests\Fixtures\Grouped\GroupHost();
+    $rc = new ExposedReflectionClosure($host->sink());
+
+    $classes = $rc->classes();
+
+    expect($classes)->toHaveKey('ah')
+        ->and($classes)->toHaveKey('mh')
+        ->and($classes)->toHaveKey('dt');
+});
+
+test('use-group with T_NAME_QUALIFIED in name is handled', function () {
+    $host = new \Tests\Fixtures\Grouped\GroupHost();
+    $rc = new ExposedReflectionClosure($host->sink());
+
+    $classes = $rc->classes();
+
+    expect($classes)->toHaveKey('arrayobject');
+});
+
+test('use statement with leading backslash gets prefix', function () {
+    $host = new \Tests\Fixtures\Rich\RichHost();
+    $rc = new ExposedReflectionClosure($host->sink());
+
+    $classes = $rc->classes();
+
+    expect($classes)->toHaveKey('arrayobject')
+        ->and($classes['arrayobject'])->toStartWith('\\');
+});
+
+test('new state with default token transitions to start', function () {
+    $code = reflect((new TokenizerEdgeCases())->newSelfParent())->getCode();
+
+    expect($code)->toContain('new self()');
+});
+
+test('id_name with colon in non-instanceof context appends to code', function () {
+    $code = reflect(function (): string {
+        return 'x';
+    })->getCode();
+
+    expect($code)->toContain(':');
+});
+
+test('id_name default resolves constants via getConstants', function () {
+    $code = reflect(function (): mixed {
+        return \PHP_INT_SIZE;
+    })->getCode();
+
+    expect($code)->toContain('PHP_INT_SIZE');
+});
+
+test('id_start T_VARIABLE after new sets variable and returns to lastState', function () {
+    $code = reflect((new TokenizerEdgeCases())->newSelfParent())->getCode();
+
+    expect($code)->toContain('new self()');
+});
+
+test('closure with $this usage sets isBindingRequired', function () {
+    $rc = reflect((new TokenizerEdgeCases())->anonymousClassExtends());
+
+    expect($rc->isBindingRequired())->toBeFalse();
+});
+
+test('the rich fixture closure has no uncaptured magic constants in body', function () {
+    $host = new \Tests\Fixtures\Rich\RichHost();
+    $code = reflect($host->sink())->getCode();
+
+    expect($code)->not->toContain('__CLASS__')
+        ->and($code)->not->toContain('__TRAIT__')
+        ->and($code)->not->toContain('__FUNCTION__')
+        ->and($code)->not->toContain('__METHOD__');
+});
+
+test('short closure ending with semicolon exits loop', function () {
+    $code = reflect(fn (): int => 42)->getCode();
+
+    expect($code)->toContain('42');
+});
+
+test('short closure ending with closing paren exits loop', function () {
+    $code = reflect(fn (int $x): int => $x)->getCode();
+
+    expect($code)->toContain('$x');
+});
+
+test('short closure ending with comma exits loop', function () {
+    $code = reflect(fn (): array => [1, 2])->getCode();
+
+    expect($code)->toContain('[1, 2]');
+});
+
+test('name-qualified token directly in closure body is resolved', function () {
+    $code = reflect((new TokenizerEdgeCases())->nameQualifiedInBody())->getCode();
+
+    expect($code)->toContain('Colorable');
+});
+
+test('anonymous class with use trait inside closure body is parsed', function () {
+    $code = reflect((new TokenizerEdgeCases())->anonymousClassWithTrait())->getCode();
+
+    expect($code)->toContain('new class')
+        ->and($code)->toContain('use')
+        ->and($code)->toContain('Colorable');
+});
+
+test('imported function call exercises function resolution in id_name', function () {
+    $code = reflect((new TokenizerEdgeCases())->importedFunctionCall())->getCode();
+
+    expect($code)->toContain('tokenizerArraySort');
 });

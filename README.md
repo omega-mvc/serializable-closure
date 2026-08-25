@@ -236,6 +236,16 @@ composer phpcs      # PSR-12 over src/ and tests/
 
 Both must pass before committing; `cache/` holds their result caches and is gitignored.
 
+### Known Limitations
+
+PHPStan emits two false-positive errors on test code. Both are tool limitations,
+not library bugs, and are suppressed with `@phpstan-ignore`:
+
+| Error | File | Description |
+|-------|------|-------------|
+| `callable.nonCallable` | `ReflectionClosureTest.php:248` | `unserialize()` returns `mixed`; a runtime `instanceof` guard protects the invocation. |
+| `function.inner` | `ReflectionClosureTest.php:262` | Named function inside a closure body — valid PHP but unsupported by PHPStan ([#165](https://github.com/phpstan/phpstan/issues/165)). Used as a tokenizer edge-case fixture. |
+
 ## Generating API Documentation with phpDocumentor
 
 phpDocumentor is configured via `phpdoc.xml.dist` but the PHAR is not bundled. Install it separately and run:
