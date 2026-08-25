@@ -195,4 +195,93 @@ class TokenizerEdgeCases
             return \Tests\Fixtures\tokenizerArraySort($data);
         };
     }
+
+    /**
+     * Same-line named function forces the function/named_function reset
+     * paths before the real closure is reached.
+     */
+    public function namedFunctionSameLine(): \Closure
+    {
+        function tokenizerEdgeProbeA1() {} return function () {
+            return 1;
+        };
+    }
+
+    /** Named function followed by an arrow closure resets through T_FN. */
+    public function namedFunctionBeforeArrow(): \Closure
+    {
+        function tokenizerEdgeProbeB2() {} return fn () => 3;
+    }
+
+    /** T_STATIC followed by :: resets the hunt back to start. */
+    public function staticQualifiedReset(): \Closure
+    {
+        return false ? static::missingFactory() : function () {
+            return 4;
+        };
+    }
+
+    /** Braced closure without return type or use clause enters via closure_args '{'. */
+    public function plainBracedClosure(): \Closure
+    {
+        return function () {
+            return 5;
+        };
+    }
+
+    /** Relative (namespace-qualified, not fully-qualified) name in body state. */
+    public function relativeQualifiedNameInBody(): \Closure
+    {
+        return function (): void {
+            Grouped\GroupInterface::noop();
+        };
+    }
+
+    /** Object operator followed by a newline exercises ignore_next whitespace. */
+    public function chainedAcrossLines(): \Closure
+    {
+        return function (): string {
+            return $this
+                ->describe();
+        };
+    }
+
+    /** Newline directly after the object operator lands in ignore_next. */
+    public function chainedWithOperatorEOL(): \Closure
+    {
+        return function (): string {
+            return $this->
+                describe();
+        };
+    }
+
+    /** Braced-string accessor after an object operator hits ignore_next default. */
+    public function braceAccessorAfterOperator(): \Closure
+    {
+        return function (): void {
+            $bag = ['k' => 1];
+            $bag->{'k'} = 2;
+        };
+    }
+
+    /** Instantiating through a variable exercises id_start's T_VARIABLE arm. */
+    public function newVariableClass(): \Closure
+    {
+        return function (): object {
+            $cls = Suit::class;
+
+            return new $cls();
+        };
+    }
+
+    /** Anonymous class with relative string parent and qualified interface. */
+    public function anonymousRelativeAncestry(): \Closure
+    {
+        return function (): array {
+            $first = new class extends Suit {};
+            $second = new class implements Grouped\GroupInterface {};
+
+            return [$first, $second];
+        };
+    }
 }

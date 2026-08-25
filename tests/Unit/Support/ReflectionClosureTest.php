@@ -27,6 +27,9 @@ use Tests\Fixtures\MethodHostChild;
 use Tests\Fixtures\Rich\RichHost;
 use Tests\Fixtures\TokenizerEdgeCases;
 use Tests\Fixtures\Grouped\GroupHost;
+use Tests\Fixtures\LazyFunctionsProbe;
+use Tests\Fixtures\LazyClassProbe;
+use Tests\Fixtures\ClassResolutionProbe;
 
 function reflect(Closure $closure): ReflectionClosure
 {
@@ -663,4 +666,130 @@ test('imported function call exercises function resolution in id_name', function
     $code = reflect((new TokenizerEdgeCases())->importedFunctionCall())->getCode();
 
     expect($code)->toContain('tokenizerArraySort');
+});
+
+test('same-line named function resets the hunt before the real closure', function () {
+    $code = reflect((new TokenizerEdgeCases())->namedFunctionSameLine())->getCode();
+
+    expect($code)->toContain('function ()')
+        ->and($code)->not->toContain('tokenizerEdgeProbeA1');
+});
+
+test('same-line named function followed by an arrow closure restarts on T_FN', function () {
+    $code = reflect((new TokenizerEdgeCases())->namedFunctionBeforeArrow())->getCode();
+
+    expect($code)->toContain('fn () => 3')
+        ->and($code)->not->toContain('tokenizerEdgeProbeB2');
+});
+
+test('static qualified call resets the hunt back to start', function () {
+    $code = reflect((new TokenizerEdgeCases())->staticQualifiedReset())->getCode();
+
+    expect($code)->toContain('function ()')
+        ->and($code)->toContain('return 4;');
+});
+
+test('plain braced closure without types or use enters via closure_args', function () {
+    $code = reflect((new TokenizerEdgeCases())->plainBracedClosure())->getCode();
+
+    expect($code)->toContain('{')
+        ->and($code)->toContain('return 5;');
+});
+
+test('relative qualified name in body is resolved through parseNameQualified', function () {
+    $code = reflect((new TokenizerEdgeCases())->relativeQualifiedNameInBody())->getCode();
+
+    expect($code)->toContain('\Tests\Fixtures\Grouped\GroupInterface');
+});
+
+test('object operator across lines consumes the whitespace', function () {
+    $code = reflect((new TokenizerEdgeCases())->chainedAcrossLines())->getCode();
+
+    expect($code)->toContain('$this')
+        ->and($code)->toContain('describe');
+});
+
+test('operator at end of line consumes the following whitespace', function () {
+    $code = reflect((new TokenizerEdgeCases())->chainedWithOperatorEOL())->getCode();
+
+    expect($code)->toContain('describe');
+});
+
+test('braced string accessor after an operator is reprocessed', function () {
+    $code = reflect((new TokenizerEdgeCases())->braceAccessorAfterOperator())->getCode();
+
+    expect($code)->toContain("{'k'}");
+});
+
+test('new with a variable class name keeps the variable verbatim', function () {
+    $code = reflect((new TokenizerEdgeCases())->newVariableClass())->getCode();
+
+    expect($code)->toContain('new $cls()');
+});
+
+test('anonymous class ancestry resolves relative names', function () {
+    $code = reflect((new TokenizerEdgeCases())->anonymousRelativeAncestry())->getCode();
+
+    expect($code)->toContain('extends \Tests\Fixtures\Suit')
+        ->and($code)->toContain('implements \Tests\Fixtures\Grouped\GroupInterface');
+});
+
+test('namespaced function calls resolve through the lazy functions cache', function () {
+    $code = reflect((new LazyFunctionsProbe())->callsNamespacedFunction())->getCode();
+
+    expect($code)->toContain('\Tests\Fixtures\tokenizerNamedFunction');
+});
+
+test('parenthesized new triggers the lazy classes cache on that path', function () {
+    $code = reflect((new LazyClassProbe())->instantiatesImportedClass())->getCode();
+
+    expect($code)->toContain('new \Tests\Fixtures\Suit');
+});
+
+test('imported classes resolve to fully qualified names through the classes cache', function () {
+    $code = reflect((new ClassResolutionProbe())->resolvesImportedClasses())->getCode();
+
+    expect($code)->toContain('new \Tests\Fixtures\Suit')
+        ->and($code)->toContain('\Tests\Fixtures\Suit::class')
+        ->and($code)->toContain('new self()')
+        ->and($code)->toContain('SOME_UNDEFINED_PROBE');
+});
+
+test('__TRAIT__ resolves through the structures cache', function () {
+    $consumer = new class {
+        use \Tests\Fixtures\TraitProbe;
+    };
+
+    $code = reflect($consumer->traitConstClosure())->getCode();
+
+    expect($code)->toContain("'TraitProbe'");
+});
+
+test('file-level scan covers grouped and leading-backslash imports', function () {
+    $probe = new \Tests\Fixtures\FetchScanProbe();
+    $rc    = new ExposedReflectionClosure($probe->probe());
+
+    // Leading-backslash imports (class, function or const) collapse into a
+    // single T_NAME_FULLY_QUALIFIED token that the scanner ignores, leaving
+    // a bare "\" prefix behind; grouped unqualified imports resolve fully.
+    expect(array_keys($rc->classes()))->toBe(['s2', 'wearable', 'gi3'])
+        ->and($rc->classes()['gi3'])->toBe('\Tests\Fixtures\Grouped\GroupInterface')
+        ->and($rc->classes()['s2'])->toBe('\Tests\Fixtures\Suit')
+        ->and($rc->functions())->toBe([
+            'cnt2' => '\\',
+            'tas'  => '\Tests\Fixtures\tokenizerArraySort',
+        ])
+        ->and($rc->constants())->toBe([
+            'EOL2' => '\\',
+            'PC2'  => '\ProbeConsts\PROBE_CONST',
+        ]);
+});
+
+test('closures without source code are rejected fail-fast', function () {
+    $rc = new ExposedReflectionClosure(strlen(...));
+
+    // getCode() rejects first; the cache accessors share getHashedFileName()
+    // and would reject through its own guard.
+    expect(fn () => $rc->getCode())->toThrow(NativeReflectionException::class)
+        ->and(fn () => $rc->functions())->toThrow(NativeReflectionException::class);
 });

@@ -119,3 +119,62 @@ test('named arguments in inner calls are preserved', function () {
     $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($closure)));
     expect($restored())->toBe([['k']]);
 });
+
+test('recursive closures round-trip through their self reference', function () {
+    $factorial = function (int $n) use (&$factorial): int {
+        return $n <= 1 ? 1 : $n * $factorial($n - 1);
+    };
+
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($factorial)));
+
+    expect($restored(5))->toBe(120);
+});
+
+test('the same captured closure is serialized once and stays shared', function () {
+    $inner = fn (): int => 7;
+    $alias = $inner;
+
+    $outer = function () use ($inner, $alias): int {
+        return $inner() + $alias();
+    };
+
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($outer)));
+
+    expect($restored())->toBe(14);
+});
+
+test('the same captured object keeps a single identity after the round trip', function () {
+    $counter = new UserDefinedFixture();
+    $alias   = $counter;
+
+    $closure = function () use ($counter, $alias): string {
+        return spl_object_id($counter) === spl_object_id($alias) ? $counter->label : 'mismatch';
+    };
+
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($closure)));
+
+    expect($restored())->toBe('fixture');
+});
+
+test('bound objects carrying recursion markers keep their arrays untouched', function () {
+    $host = new \Tests\Fixtures\LoopHost();
+
+    // A literal marker entry (not an actual cycle): wrapClosures() must
+    // return the array untouched instead of walking it.
+    $host->loop = [
+        Omega\SerializableClosure\Serializers\Native::ARRAY_RECURSIVE_KEY => true,
+        'tag'                                                             => 't',
+    ];
+
+    $bound = $host->reader();
+
+    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($bound)));
+    $result   = $restored();
+
+    if (! is_array($result)) {
+        throw new Exception('Unexpected restored type.');
+    }
+
+    expect($result['tag'] ?? '')->toBe('t')
+        ->and($result[\Omega\SerializableClosure\Serializers\Native::ARRAY_RECURSIVE_KEY] ?? false)->toBeTrue();
+});
