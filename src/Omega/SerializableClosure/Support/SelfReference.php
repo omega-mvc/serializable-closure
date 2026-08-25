@@ -29,7 +29,7 @@ namespace Omega\SerializableClosure\Support;
  * @license     https://www.gnu.org/licenses/gpl-3.0-standalone.html     GPL V3.0+
  * @version     1.0.0
  */
-final readonly class SelfReference
+final class SelfReference
 {
     /**
      * Creates a new self reference instance.
@@ -37,7 +37,7 @@ final readonly class SelfReference
      * @param string $hash Holds the unique hash representing the object.
      */
     public function __construct(
-        public string $hash,
+        public readonly string $hash,
     ) {
     }
 }

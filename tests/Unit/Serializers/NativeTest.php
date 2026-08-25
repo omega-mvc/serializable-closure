@@ -367,3 +367,127 @@ test('the same captured object maps to a single rebuilt instance', function () {
     expect($uses['one'])->not->toBe($object)
         ->and($uses['two'])->toBe($uses['one']);
 });
+
+test('self-referencing closure in use variables maps via SelfReference', function () {
+    $outer = fn (): int => 1;
+    $native = nativeOf($outer);
+    $payload = $native->__serialize();
+
+    $selfRef = new \Omega\SerializableClosure\Support\SelfReference($payload['self']);
+
+    $scoped = withScope(nativeOf(fn (): int => 1), new ClosureScope());
+    $method = new ReflectionMethod(Native::class, 'mapPointers');
+    $method->setAccessible(true);
+
+    $data = ['ref' => $selfRef];
+    $deferred = [];
+    $args = [&$data, $payload['self'], &$deferred];
+    $method->invokeArgs($scoped, $args);
+
+    expect($data['ref'])->toBeInstanceOf(Closure::class);
+});
+
+test('recursive array in use variables is handled by mapByReference', function () {
+    $loop = [];
+    $loop['self'] = &$loop;
+    $loop['value'] = 42;
+
+    $uses = ['data' => &$loop];
+
+    $scoped = withScope(nativeOf(fn (): int => 1), new ClosureScope());
+    $method = new ReflectionMethod(Native::class, 'mapByReference');
+    $method->setAccessible(true);
+    $args = [&$uses];
+    $method->invokeArgs($scoped, $args);
+
+    expect($uses['data'])->toBeArray();
+});
+
+test('wrapClosures returns cached stdClass on second visit', function () {
+    $method = new ReflectionMethod(Native::class, 'wrapClosures');
+    $method->setAccessible(true);
+
+    $box = new stdClass();
+    $box->name = 'test';
+    $storage = new ClosureScope();
+
+    $first = $method->invoke(null, $box, $storage);
+    $second = $method->invoke(null, $box, $storage);
+
+    expect($first)->toBeInstanceOf(stdClass::class)
+        ->and($second)->toBe($first);
+});
+
+test('mapPointersValue handles SelfReference inside nested array', function () {
+    $closure = fn (): int => 1;
+    $native = nativeOf($closure);
+    $payload = $native->__serialize();
+
+    $selfRef = new \Omega\SerializableClosure\Support\SelfReference($payload['self']);
+
+    $scope = new ClosureScope();
+    $scoped = withScope(nativeOf(fn (): int => 1), $scope);
+    $method = new ReflectionMethod(Native::class, 'mapPointersValue');
+    $method->setAccessible(true);
+
+    $value = ['nested' => ['ref' => $selfRef]];
+    $deferred = [];
+    $method->invokeArgs($scoped, [&$value, $payload['self'], &$deferred, $scope]);
+
+    expect($value['nested']['ref'])->toBeInstanceOf(Closure::class);
+});
+
+test('mapPointersValue handles SelfReference inside stdClass', function () {
+    $closure = fn (): int => 1;
+    $native = nativeOf($closure);
+    $payload = $native->__serialize();
+
+    $selfRef = new \Omega\SerializableClosure\Support\SelfReference($payload['self']);
+
+    $scope = new ClosureScope();
+    $scoped = withScope(nativeOf(fn (): int => 1), $scope);
+    $method = new ReflectionMethod(Native::class, 'mapPointersValue');
+    $method->setAccessible(true);
+
+    $box = new stdClass();
+    $box->ref = $selfRef;
+    $deferred = [];
+    $method->invokeArgs($scoped, [&$box, $payload['self'], &$deferred, $scope]);
+
+    expect($box->ref)->toBeInstanceOf(Closure::class);
+});
+
+test('mapPointersValue returns early for already-seen stdClass scope', function () {
+    $scope = new ClosureScope();
+    $scoped = withScope(nativeOf(fn (): int => 1), $scope);
+    $method = new ReflectionMethod(Native::class, 'mapPointersValue');
+    $method->setAccessible(true);
+
+    $box = new stdClass();
+    $box->name = 'original';
+
+    $storage = new ClosureScope();
+    $storage[$box] = true;
+
+    $deferred = [];
+    $method->invokeArgs($scoped, [&$box, 'hash', &$deferred, $storage]);
+
+    expect($box->name)->toBe('original');
+});
+
+test('mapPointersValue returns early for already-seen object scope', function () {
+    $scope = new ClosureScope();
+    $scoped = withScope(nativeOf(fn (): int => 1), $scope);
+    $method = new ReflectionMethod(Native::class, 'mapPointersValue');
+    $method->setAccessible(true);
+
+    $obj = new \Tests\Fixtures\UserDefinedFixture();
+
+    $storage = new ClosureScope();
+    $storage[$obj] = true;
+
+    $deferred = [];
+    $method->invokeArgs($scoped, [&$obj, 'hash', &$deferred, $storage]);
+
+    expect($obj->label)->toBe('fixture');
+});
