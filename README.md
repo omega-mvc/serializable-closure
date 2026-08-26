@@ -17,10 +17,10 @@
 </p>
 
 <p align="center">
-    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml/badge.svg?label=Pest" alt="Pest"></a>
-    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml/badge.svg?label=PHPCS" alt="PHPCS"></a>
-    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml/badge.svg?label=PHPStan" alt="PHPStan"></a>
+    <a href="https://packagist.org/packages/omega-mvc/serializable-closure"><img src="https://img.shields.io/packagist/v/omega-mvc/serializable-closure.svg" alt="Packagist Version"></a>
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml/badge.svg?job=tests" alt="Pest"></a>
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml/badge.svg?job=coding-standard" alt="PHPCS"></a>
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml/badge.svg?job=static-analysis" alt="PHPStan"></a>
 </p>
 
 # Omega - Serializable Closure
@@ -278,6 +278,16 @@ not library bugs, and are suppressed with `@phpstan-ignore`:
 |-------|------|-------------|
 | `callable.nonCallable` | `ReflectionClosureTest.php:248` | `unserialize()` returns `mixed`; a runtime `instanceof` guard protects the invocation. |
 | `function.inner` | `ReflectionClosureTest.php:262` | Named function inside a closure body — valid PHP but unsupported by PHPStan ([#165](https://github.com/phpstan/phpstan/issues/165)). Used as a tokenizer edge-case fixture. |
+
+### PHP Limitations
+
+These are not library bugs — they are inherent PHP constraints that affect every
+closure-serialization library (including Laravel's):
+
+| Limitation | Explanation |
+|------------|-------------|
+| **By-reference closure parameters** | `function (int &$val)` cannot forward the reference through serialization. `__invoke(mixed ...$args)` uses variadic expansion, which copies values. Use `use (&$var)` instead for shared mutable state. |
+| **Anonymous classes** | Closures that capture anonymous class instances are not serializable. This mirrors PHP's own limitation — `unserialize()` cannot reconstruct unnamed classes. |
 
 ## Generating API Documentation with phpDocumentor
 
