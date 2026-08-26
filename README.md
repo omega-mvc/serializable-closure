@@ -227,6 +227,16 @@ The run generates an HTML report (lines, branches and paths) in
 `cache/coverage/index.html`. Plain `composer test` skips coverage on purpose:
 pass `--no-coverage` wherever a coverage driver is not available.
 
+> **Known issue (xdebug ≤ 3.4.5):** full-suite path-coverage runs may abort
+> *after* every test has passed (`double free or corruption`, `Segmentation
+> fault`) while Xdebug releases its path-tracking structures during shutdown.
+> This is an upstream bug family ([#2332](https://bugs.xdebug.org/view.php?id=2332),
+> [#1486](https://bugs.xdebug.org/view.php?id=1486)), reproduced here on
+> pristine sources — it is not caused by the test suite, and the printed
+> summary remains valid. Rerun until green, split the run by suite file, or
+> upgrade Xdebug (`pecl upgrade xdebug`, ≥ 3.4.7 recommended), which contains
+> further crash fixes.
+
 #### Reading the coverage report honestly
 
 Line coverage sits at **100%**; the other metrics do not, and that is by
