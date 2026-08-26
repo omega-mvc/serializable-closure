@@ -29,7 +29,7 @@
     }
   },
   "scripts": {
-    "phpcs": "XDEBUG_MODE=off php vendor/bin/phpcs",
+    "phpcs": "mkdir -p cache/phpcs && XDEBUG_MODE=off php vendor/bin/phpcs",
     "phpcbf": "XDEBUG_MODE=off php vendor/bin/phpcbf --standard=PSR12",
     "phpstan": "XDEBUG_MODE=off php vendor/bin/phpstan analyse",
     "test-no-coverage": "XDEBUG_MODE=off php vendor/bin/pest --no-coverage",
