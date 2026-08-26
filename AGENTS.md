@@ -19,6 +19,7 @@ XDEBUG_MODE=coverage vendor/bin/pest --coverage   # HTML report in cache/coverag
 - **Pest v5 exits 1 even on green runs** if a test file triggers any PHP notice at include time — classically `use Closure;`-style imports of *global* names in namespace-less files ("non-compound name has no effect"). Test files directly under `tests/Unit/` have **no** namespace; subdirectory suites declare `Tests\Unit\…`, where those imports are fine and used (e.g. `ReflectionClosureTest` aliases global `ReflectionException`).
 - **Pest dataset rows must be positional argument lists** (`[payload, expected]`, optionally keyed by case name for output): rows written as associative maps keep passing their assertions yet still produce the exit-code-1 symptom above.
 - **Coverage runs are xdebug-heavy**: plain `--path-coverage` on the whole Support suite can segfault (`double free or corruption`); prefer the default `vendor/bin/pest --coverage`, and if it aborts, rerun or split by suite file.
+- **The segfaults are an xdebug bug, not ours**: they hit after all tests pass, while xdebug frees its path-coverage structures at report/shutdown time (same family as xdebug #2332/#1486). Reproduced on pristine sources, ~50% of full-suite runs, never caused by test code. Installed xdebug 3.4.5; upstream ships 3.4.6/3.4.7/3.5.x with further crash fixes — upgrading (`pecl upgrade xdebug`) is the real fix. Deleting `cache/` does *not* prevent them (verified experimentally); `USE_ZEND_ALLOC=0` makes single-file runs stable but not the full suite.
 
 ## Line coverage 100% (by design)
 
