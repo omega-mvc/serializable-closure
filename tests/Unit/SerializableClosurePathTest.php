@@ -140,6 +140,66 @@ dataset('unserialize_matrix', function () {
     ];
 });
 
+/**
+ * Programmatic sweep of the __unserialize() decision space: every row runs
+ * as its own Pest execution, so xdebug records a distinct path per
+ * combination instead of per hand-written scenario.
+ *
+ * @return array<string, PathCase>
+ */
+dataset('generated_unserialize_matrix', function () {
+    $functions = [
+        'fn() => true'                 => null,
+        'static fn () => true'         => null,
+        'function () { return true; }' => null,
+        '42'                           => ReflectionException::class,
+        12345                          => ReflectionException::class,
+    ];
+    $scopes     = [null, RoundTrip::class, 'NoSuchClassAnywhere', ['bad_scope']];
+    $thisValues = [null, ['not_an_object']];
+    $uses       = [
+        [],
+        ['v' => 'x'],
+        ['v' => 'x', 7 => 'integer key dropped'],
+        [Native::ARRAY_RECURSIVE_KEY => true],
+    ];
+
+    $rows = [];
+
+    foreach ($functions as $function => $throws) {
+        foreach ($scopes as $scope) {
+            foreach ($thisValues as $bound) {
+                foreach ($uses as $use) {
+                    // Static closures cannot rebind: keep such rows coherent.
+                    if ($bound !== null && str_starts_with((string) $function, 'static')) {
+                        continue;
+                    }
+
+                    $payload = array_filter([
+                        'function' => $function,
+                        'this'     => $bound,
+                        'self'     => 'dummy_hash',
+                        'scope'    => $scope,
+                        'use'      => $use === [] ? null : $use,
+                    ], static fn ($value): bool => $value !== null);
+
+                    $name = sprintf(
+                        '%s | scope=%s | this=%s | use=%d',
+                        substr(var_export($function, true), 0, 24),
+                        var_export($scope, true),
+                        var_export($bound, true),
+                        count($use)
+                    );
+
+                    $rows[$name] = [$payload, $throws];
+                }
+            }
+        }
+    }
+
+    return $rows;
+});
+
 test('unserialize handles combinatorial execution paths correctly', function (array $data, ?string $expectException) {
     $payload = [];
 
@@ -158,7 +218,7 @@ test('unserialize handles combinatorial execution paths correctly', function (ar
     $serializable->__unserialize($payload);
 
     expect($serializable->getClosure())->toBeInstanceOf(Closure::class);
-})->with('unserialize_matrix');
+})->with('unserialize_matrix', 'generated_unserialize_matrix');
 
 test('reconstructs a closure whose code is syntactically invalid as a statement', function () {
     $serializable = new Native(fn () => true);
