@@ -19,7 +19,6 @@ use Omega\SerializableClosure\Serializers\Signed;
 use Omega\SerializableClosure\SerializableClosure;
 use Omega\SerializableClosure\Signers\Hmac;
 use Omega\SerializableClosure\UnsignedSerializableClosure;
-use ArrayIterator;
 
 /*
 |--------------------------------------------------------------------------
@@ -151,7 +150,7 @@ test('extension hooks can be set and cleared', function () {
 
 test('transform hook results are filtered down to their string-keyed entries', function () {
     SerializableClosure::transformUseVariablesUsing(
-        fn (array $vars): ArrayIterator => new ArrayIterator([
+        fn (array $vars): \ArrayIterator => new \ArrayIterator([
             'kept'   => $vars['in'],
             3        => 'integer key is dropped',
         ])
