@@ -140,19 +140,26 @@ final class Native implements SerializableInterface
      */
     private static function withStringKeys(mixed $values): array
     {
-        $filtered = [];
-
         if (! is_iterable($values)) {
-            return $filtered;
+            return [];
         }
 
-        foreach ($values as $key => $value) {
-            if (is_string($key)) {
-                $filtered[$key] = $value;
-            }
-        }
+        return self::stringKeyedEntries($values);
+    }
 
-        return $filtered;
+    /**
+     * Filters an iterable down to its string-keyed entries.
+     *
+     * @param iterable<mixed> $values Holds the value to filter.
+     * @return array<string, mixed> Return an array containing only string-keyed entries.
+     */
+    private static function stringKeyedEntries(iterable $values): array
+    {
+        return array_filter(
+            is_array($values) ? $values : iterator_to_array($values),
+            is_string(...),
+            ARRAY_FILTER_USE_KEY
+        );
     }
 
     /**
