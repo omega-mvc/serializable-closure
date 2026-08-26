@@ -154,3 +154,16 @@ test('stream_seek resolves relative whences the engine never forwards', function
         ->and($instance->stream_seek(3, SEEK_END))->toBeFalse()
         ->and($pointer->getValue($instance))->toBe(6);
 });
+
+test('stream_seek leaves the pointer alone on unknown whence values', function () {
+    $reflection = new \ReflectionClass(ClosureStream::class);
+    $instance = $reflection->newInstanceWithoutConstructor();
+
+    $length = new \ReflectionProperty(ClosureStream::class, 'length');
+    $length->setValue($instance, 10);
+
+    $pointer = new \ReflectionProperty(ClosureStream::class, 'pointer');
+
+    expect($instance->stream_seek(5, 42))->toBeTrue()
+        ->and($pointer->getValue($instance))->toBe(0);
+});

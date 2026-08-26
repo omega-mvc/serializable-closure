@@ -177,20 +177,12 @@ class ClosureStream
     {
         $crt = $this->pointer;
 
-        switch ($whence) {
-            case SEEK_SET:
-                $this->pointer = $offset;
-
-                break;
-            case SEEK_CUR:
-                $this->pointer += $offset;
-
-                break;
-            case SEEK_END:
-                $this->pointer = $this->length + $offset;
-
-                break;
-        }
+        $this->pointer = match ($whence) {
+            SEEK_SET => $offset,
+            SEEK_CUR => $this->pointer + $offset,
+            SEEK_END => ($this->length ?? 0) + $offset,
+            default  => $this->pointer,
+        };
 
         if ($this->pointer < 0 || $this->pointer >= $this->length) {
             $this->pointer = $crt;
