@@ -752,6 +752,30 @@ test('isShortClosure strips the static prefix before probing', function () {
         ->and($rc->isShortClosure())->toBeTrue();
 });
 
+test('isStatic and isShortClosure reject in both call orders on a static closure', function () {
+    $shortFirst = reflect(static function (): int {
+        return 8;
+    });
+
+    expect($shortFirst->isShortClosure())->toBeFalse()
+        ->and($shortFirst->isStatic())->toBeTrue();
+
+    $staticFirst = reflect(static function (): int {
+        return 9;
+    });
+
+    expect($staticFirst->isStatic())->toBeTrue()
+        ->and($staticFirst->isShortClosure())->toBeFalse();
+});
+
+test('isStatic and isShortClosure propagate the missing-source failure', function () {
+    $rc = new ExposedReflectionClosure(strlen(...));
+
+    expect(fn () => $rc->isStatic())->toThrow(NativeReflectionException::class)
+        ->and(fn () => (new ExposedReflectionClosure(strlen(...)))->isShortClosure())
+        ->toThrow(NativeReflectionException::class);
+});
+
 test('named function followed by a static closure restarts through static', function () {
     $code = reflect((new TokenizerEdgeCases())->namedFunctionBeforeStatic())->getCode();
 
