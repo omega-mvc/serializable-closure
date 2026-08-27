@@ -1,6 +1,8 @@
 name: Coding Standard
 
 on:
+  push:
+    branches: [main]
   workflow_call:
 
 permissions:
@@ -37,7 +39,7 @@ jobs:
         run: composer install --prefer-dist --no-interaction --no-progress
 
       - name: Create PHPCS cache directory
-        # phpcs cannot create intermediate directories for its result cache.
+        # phpcs cannot create intermediate directory for its result cache
         run: mkdir -p cache/phpcs
 
       - name: Run PHP_CodeSniffer

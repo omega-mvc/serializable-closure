@@ -17,9 +17,9 @@
 </p>
 
 <p align="center">
-    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/omega-mvc/serializable-closure/ci.yml?job=tests&label=Pest" alt="Pest"></a>
-    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/omega-mvc/serializable-closure/ci.yml?job=coding-standard&label=PHPCS" alt="PHPCS"></a>
-    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/omega-mvc/serializable-closure/ci.yml?job=static-analysis&label=PHPStan" alt="PHPStan"></a>
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/omega-mvc/serializable-closure/tests.yml?label=Pest" alt="Pest"></a>
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/coding-standard.yml"><img src="https://img.shields.io/github/actions/workflow/status/omega-mvc/serializable-closure/coding-standard.yml?label=PHPCS" alt="PHPCS"></a>
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/static-analysis.yml"><img src="https://img.shields.io/github/actions/workflow/status/omega-mvc/serializable-closure/static-analysis.yml?label=PHPStan" alt="PHPStan"></a>
     <a href="https://packagist.org/packages/omega-mvc/serializable-closure"><img src="https://img.shields.io/packagist/v/omega-mvc/serializable-closure.svg" alt="Packagist Version"></a>
 </p>
 
