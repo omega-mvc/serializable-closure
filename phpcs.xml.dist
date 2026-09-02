@@ -7,7 +7,12 @@
 
     <file>src</file>
     <file>tests</file>
-    <exclude-pattern>vendor/*</exclude-pattern>
+    <!-- NOTE: no <exclude-pattern>vendor/*</exclude-pattern> here. Because this
+         package can be checked out nested inside another project's vendor/
+         directory (e.g. the omega-mvc/omega starter), a relative 'vendor/*'
+         pattern matches that enclosing vendor/ path too, excluding EVERY file.
+         The vendor dir is not scanned anyway since only src and tests are
+         listed as <file> roots. -->
     <!-- Fixtures are test data: dense multi-symbol files by design. -->
     <exclude-pattern>tests/Fixtures/*</exclude-pattern>
 
