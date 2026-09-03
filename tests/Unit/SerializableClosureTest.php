@@ -34,7 +34,7 @@ use Omega\SerializableClosure\UnsignedSerializableClosure;
 test('it serializes an unsigned serializable closure', function () {
     $serialized = serialize(new UnsignedSerializableClosure(fn (int $a): int => $a + 1));
 
-    expect($serialized)->toBeString();
+    expect($serialized)->not->toBeEmpty();
 });
 
 test('it uses native serialization without a secret key', function () {
@@ -43,7 +43,7 @@ test('it uses native serialization without a secret key', function () {
 
     $serialized = serialize(new SerializableClosure(fn (): int => 42));
 
-    expect($serialized)->toBeString();
+    expect($serialized)->not->toBeEmpty();
 });
 
 test('it signs serialization when a secret key is set', function () {
@@ -52,7 +52,7 @@ test('it signs serialization when a secret key is set', function () {
 
     $serialized = serialize(new SerializableClosure(fn (): int => 7));
 
-    expect($serialized)->toBeString()->toContain('hash');
+    expect($serialized)->toContain('hash');
 });
 
 test('it clears the signer when the secret key is removed', function () {
@@ -122,16 +122,14 @@ test('the unsigned factory builds an unsigned wrapper around the closure', funct
 
     $unsigned = SerializableClosure::unsigned($closure);
 
-    expect($unsigned)->toBeInstanceOf(UnsignedSerializableClosure::class)
-        ->and($unsigned->getClosure())->toBe($closure)
+    expect($unsigned->getClosure())->toBe($closure)
         ->and($unsigned())->toBe(7);
 });
 
 test('it forwards arguments to the underlying serializer when invoked', function () {
     $serializable = new SerializableClosure(fn (int $a, int $b): int => $a - $b);
 
-    expect($serializable(10, 4))->toBe(6)
-        ->and($serializable->getClosure())->toBeInstanceOf(Closure::class);
+    expect($serializable(10, 4))->toBe(6);
 });
 
 test('extension hooks can be set and cleared', function () {

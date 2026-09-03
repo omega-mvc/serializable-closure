@@ -19,8 +19,7 @@ use Omega\SerializableClosure\UnsignedSerializableClosure;
 test('it invokes the wrapped closure with forwarded arguments', function () {
     $unsigned = new UnsignedSerializableClosure(fn (int $a, int $b): int => $a * $b);
 
-    expect($unsigned(6, 7))->toBe(42)
-        ->and($unsigned->getClosure())->toBeInstanceOf(Closure::class);
+    expect($unsigned(6, 7))->toBe(42);
 });
 
 test('its payload carries only the native serializable', function () {

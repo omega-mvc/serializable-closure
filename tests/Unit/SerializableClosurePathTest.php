@@ -17,6 +17,7 @@ use Omega\SerializableClosure\Serializers\Native;
 use Omega\SerializableClosure\Serializers\Signed;
 use Omega\SerializableClosure\Signers\Hmac;
 use Tests\Fixtures\RoundTrip;
+use Tests\TestCase;
 
 /**
  * One combinatorial case: the raw payload handed to Native::__unserialize()
@@ -219,7 +220,9 @@ test('unserialize handles combinatorial execution paths correctly', function (ar
 
     $serializable->__unserialize($payload);
 
-    expect($serializable->getClosure())->toBeInstanceOf(Closure::class);
+    // Every successful execution path reconstructs a callable closure; all
+    // success payloads build a body that returns true.
+    expect($serializable->getClosure()())->toBeTrue();
 })->with('unserialize_matrix', 'generated_unserialize_matrix');
 
 test('reconstructs a closure whose code is syntactically invalid as a statement', function () {
@@ -242,7 +245,7 @@ test('ignores a bound object identical to the instance being reconstructed', fun
         'self'     => 'dummy_hash',
     ]);
 
-    expect($serializable->getClosure())->toBeInstanceOf(Closure::class);
+    expect($serializable->getClosure()())->toBeTrue();
 });
 
 test('rebinds the reconstructed closure to a user-defined bound object', function () {
@@ -267,20 +270,20 @@ test('rebinds the reconstructed closure to a user-defined bound object', functio
 | Stress tests
 |--------------------------------------------------------------------------
 |
-| The iteration budget is controlled by the STRESS_ITERATIONS constant
-| defined in tests/Pest.php.  Stress tests are skipped automatically
-| when the budget is ≤ 1 (i.e. no stress budget configured).
+| The iteration budget is provided by Tests\TestCase::stressIterations().
+| Stress tests are skipped automatically when the budget resolves to ≤ 1
+| (i.e. no stress budget configured).
 |
 */
 
 test('stress: repeated native serialize/unserialize round-trips', function (): void {
-    if (STRESS_ITERATIONS <= 1) {
-        $this->markTestSkipped('Stress tests disabled (STRESS_ITERATIONS ≤ 1).');
+    if (TestCase::stressIterations() <= 1) {
+        $this->markTestSkipped('Stress tests disabled (stressIterations() ≤ 1).');
     }
 
     $closure = fn (int $n): int => $n * 2;
 
-    for ($i = 0; $i < STRESS_ITERATIONS; $i++) {
+    for ($i = 0; $i < TestCase::stressIterations(); $i++) {
         $serializable = new Native($closure);
         $payload      = $serializable->__serialize();
 
@@ -288,36 +291,34 @@ test('stress: repeated native serialize/unserialize round-trips', function (): v
         $restored->__unserialize($payload);
 
         $fn = $restored->getClosure();
-        expect($fn)->toBeInstanceOf(Closure::class);
         expect($fn(21))->toBe(42);
     }
 })->group('stress');
 
 test('stress: repeated signed serialize/unserialize round-trips', function (): void {
-    if (STRESS_ITERATIONS <= 1) {
-        $this->markTestSkipped('Stress tests disabled (STRESS_ITERATIONS ≤ 1).');
+    if (TestCase::stressIterations() <= 1) {
+        $this->markTestSkipped('Stress tests disabled (stressIterations() ≤ 1).');
     }
 
     $secretKey = 'stress-test-secret-key';
-    $signer    = new Hmac($secretKey);
+    Signed::$signer = new Hmac($secretKey);
     $closure   = fn (string $label): string => "stress: {$label}";
 
-    for ($i = 0; $i < STRESS_ITERATIONS; $i++) {
-        $signed     = new Signed($closure, $signer);
+    for ($i = 0; $i < TestCase::stressIterations(); $i++) {
+        $signed     = new Signed($closure);
         $payload    = $signed->__serialize();
 
-        $restored   = new Signed(fn () => true, $signer);
+        $restored   = new Signed(fn () => true);
         $restored->__unserialize($payload);
 
         $fn = $restored->getClosure();
-        expect($fn)->toBeInstanceOf(Closure::class);
         expect($fn('ok'))->toBe('stress: ok');
     }
 })->group('stress');
 
 test('stress: repeated complex closures with bound object and use variables', function (): void {
-    if (STRESS_ITERATIONS <= 1) {
-        $this->markTestSkipped('Stress tests disabled (STRESS_ITERATIONS ≤ 1).');
+    if (TestCase::stressIterations() <= 1) {
+        $this->markTestSkipped('Stress tests disabled (stressIterations() ≤ 1).');
     }
 
     $host   = new class {
@@ -325,7 +326,7 @@ test('stress: repeated complex closures with bound object and use variables', fu
     };
     $multiplier = 3;
 
-    for ($i = 0; $i < STRESS_ITERATIONS; $i++) {
+    for ($i = 0; $i < TestCase::stressIterations(); $i++) {
         $serializable = new Native(fn () => true);
 
         $serializable->__unserialize([
@@ -337,7 +338,6 @@ test('stress: repeated complex closures with bound object and use variables', fu
         ]);
 
         $fn = $serializable->getClosure();
-        expect($fn)->toBeInstanceOf(Closure::class);
         expect($fn(5))->toBe(25);
     }
 })->group('stress');

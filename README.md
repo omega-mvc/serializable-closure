@@ -225,18 +225,18 @@ vendor/bin/pest --group=stress
 
 #### Iteration budget
 
-The number of iterations per stress test is controlled by the `STRESS_ITERATIONS` constant, defined automatically in `tests/Pest.php` based on the runtime environment:
+The number of iterations per stress test is resolved at runtime by `Tests\TestCase::stressIterations()`. Because it reads the environment inside the test body — where the `<env>` variables declared in `phpunit.xml.dist` have already been applied — it behaves correctly whether the suite is launched by Pest with the config file or standalone:
 
 | Condition | Iterations |
 |-----------|------------|
+| `OMEGA_STRESS_ITERATIONS` set (any positive int) | value as-is |
 | `OMEGA_TEST_MODE=light` | 10 |
 | `CI` or `GITHUB_ACTIONS` set | 100 |
-| `OMEGA_STRESS_ITERATIONS` set (any positive int) | value as-is |
 | Local development (default) | 10 000 |
 
 Stress tests are **skipped automatically** when the iteration budget is ≤ 1.
 
-To override the automatic selection, export `OMEGA_STRESS_ITERATIONS` before running the suite:
+To override the automatic selection, export `OMEGA_STRESS_ITERATIONS` before running the suite (or set it via `<env>` in `phpunit.xml.dist`):
 
 ```sh
 OMEGA_STRESS_ITERATIONS=500 vendor/bin/pest --group=stress
@@ -308,13 +308,40 @@ Both must pass before committing; `cache/` holds their result caches and is giti
 
 ### Known Limitations
 
-PHPStan emits two false-positive errors on test code. Both are tool limitations,
-not library bugs, and are suppressed with `@phpstan-ignore`:
+The suite deliberately keeps **no `@phpstan-ignore` suppression** anywhere in the
+code. PHPStan reports a handful of errors that are all tool/engine limitations,
+not library bugs; they are documented here so they can be read as expected noise
+rather than regressions. `phpstan analyse` therefore exits non-zero by design.
+
+Two are classic PHPStan false positives:
 
 | Error | File | Description |
 |-------|------|-------------|
-| `callable.nonCallable` | `ReflectionClosureTest.php:248` | `unserialize()` returns `mixed`; a runtime `instanceof` guard protects the invocation. |
-| `function.inner` | `ReflectionClosureTest.php:262` | Named function inside a closure body — valid PHP but unsupported by PHPStan ([#165](https://github.com/phpstan/phpstan/issues/165)). Used as a tokenizer edge-case fixture. |
+| `callable.nonCallable` | `ReflectionClosureTest.php` | `unserialize()` returns `mixed`; a runtime `instanceof` guard protects the invocation. |
+| `function.inner` | `ReflectionClosureTest.php` | Named function inside a closure body — valid PHP but unsupported by PHPStan ([#165](https://github.com/phpstan/phpstan/issues/165)). Used as a tokenizer edge-case fixture. |
+
+#### By-reference mutation false positives
+
+The `pest-plugin-phpstan` rules report five `pest.expectation.impossible` errors
+in `NativeTest.php`. These are false positives caused by pass-by-reference
+mutation through `ReflectionMethod::invokeArgs()`: PHPStan cannot track types
+changed in place through a reflected, by-reference call, so it evaluates each
+assertion against the *pre-mutation* static type. At runtime the values are
+concrete and the assertions are valid:
+
+| Line | Setup type (static) | Runtime value asserted | What the test really verifies |
+|------|---------------------|------------------------|-------------------------------|
+| `322` | `Closure` (inferred) | `DateTimeImmutable` | Non-closure `use` values are left untouched by `mapByReference`. |
+| `353` | `Closure` (inferred) | `Native` | The same captured closure maps to a single shared `Native` wrapper. |
+| `388` | `SelfReference` | `Closure` | `mapPointers` resolves a self-reference into the actual closure. |
+| `441` | `SelfReference` | `Closure` | `mapPointersValue` resolves a `SelfReference` inside a nested array. |
+| `461` | `SelfReference` | `Closure` | `mapPointersValue` resolves a `SelfReference` inside a `stdClass`. |
+
+These five assertions are the core behavioral checks for closure/self-reference
+resolution, so they are deliberately not suppressed. The remaining
+`pest.expectation.redundant` findings (assertions whose success is already
+guaranteed by the static type) have been removed from the suite, so the only
+remaining PHPStan findings are the documented false positives above.
 
 ### PHP Limitations
 

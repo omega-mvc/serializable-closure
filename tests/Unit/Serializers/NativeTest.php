@@ -238,7 +238,8 @@ test('self-referencing arrays hit the recursion sentinel once', function () {
     $args = [&$uses];
     $method->invokeArgs($scoped, $args);
 
-    expect($uses['loop'])->toBeArray();
+    expect($uses['loop'])->toHaveKey('self')
+        ->not->toHaveKey(Native::ARRAY_RECURSIVE_KEY);
 });
 
 test('aliased objects are serialized through the scope cache', function () {
@@ -400,7 +401,10 @@ test('recursive array in use variables is handled by mapByReference', function (
     $args = [&$uses];
     $method->invokeArgs($scoped, $args);
 
-    expect($uses['data'])->toBeArray();
+    expect($uses['data'])->toHaveKey('self')
+        ->toHaveKey('value')
+        ->not->toHaveKey(Native::ARRAY_RECURSIVE_KEY)
+        ->and($uses['data']['value'])->toBe(42);
 });
 
 test('wrapClosures returns cached stdClass on second visit', function () {

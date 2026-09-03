@@ -19,4 +19,36 @@ use PHPUnit\Framework\TestCase as BaseTestCase;
 
 abstract class TestCase extends BaseTestCase
 {
+    /**
+     * Resolves the stress-test iteration budget.
+     *
+     * The value is read from OMEGA_STRESS_ITERATIONS at call time so that the
+     * env vars declared in phpunit.xml.dist (applied only after the Pest
+     * bootstrap has run) are honoured:
+     *
+     *   • OMEGA_STRESS_ITERATIONS set (positive int) → value as-is
+     *   • OMEGA_TEST_MODE = "light"                →      10
+     *   • CI / GITHUB_ACTIONS set                  →     100
+     *   • Local development                        →  10 000
+     *
+     * @return int The number of stress iterations to run.
+     */
+    public static function stressIterations(): int
+    {
+        $value = getenv('OMEGA_STRESS_ITERATIONS');
+
+        if ($value !== false && (int) $value > 0) {
+            return (int) $value;
+        }
+
+        if (getenv('OMEGA_TEST_MODE') === 'light') {
+            return 10;
+        }
+
+        if (getenv('CI') !== false || getenv('GITHUB_ACTIONS') !== false) {
+            return 100;
+        }
+
+        return 10_000;
+    }
 }

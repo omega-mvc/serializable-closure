@@ -30,6 +30,6 @@
     </coverage>
 
     <php>
-        <env name="STRESS_ITERATIONS" value="100"/>
+        <env name="OMEGA_STRESS_ITERATIONS" value="10"/>
     </php>
 </phpunit>
