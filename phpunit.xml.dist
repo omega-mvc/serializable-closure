@@ -28,4 +28,8 @@
             <html outputDirectory="cache/coverage"/>
         </report>
     </coverage>
+
+    <php>
+        <env name="STRESS_ITERATIONS" value="100"/>
+    </php>
 </phpunit>

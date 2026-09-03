@@ -215,6 +215,43 @@ vendor/bin/pest tests/Unit/SerializableClosureTest.php
 vendor/bin/pest --filter=round-trips
 ```
 
+### Stress Testing
+
+The suite includes stress tests that execute serialization/deserialization cycles in a tight loop to detect memory leaks and resource accumulation. Stress tests are grouped under the `stress` group and can be targeted explicitly:
+
+```sh
+vendor/bin/pest --group=stress
+```
+
+#### Iteration budget
+
+The number of iterations per stress test is controlled by the `STRESS_ITERATIONS` constant, defined automatically in `tests/Pest.php` based on the runtime environment:
+
+| Condition | Iterations |
+|-----------|------------|
+| `OMEGA_TEST_MODE=light` | 10 |
+| `CI` or `GITHUB_ACTIONS` set | 100 |
+| `OMEGA_STRESS_ITERATIONS` set (any positive int) | value as-is |
+| Local development (default) | 10 000 |
+
+Stress tests are **skipped automatically** when the iteration budget is ≤ 1.
+
+To override the automatic selection, export `OMEGA_STRESS_ITERATIONS` before running the suite:
+
+```sh
+OMEGA_STRESS_ITERATIONS=500 vendor/bin/pest --group=stress
+```
+
+In CI environments the budget is reduced automatically (100 iterations) to keep pipeline times short. Locally the default is 10 000 iterations for thorough leak detection.
+
+#### What is tested
+
+| Test | Description |
+|------|-------------|
+| **Native round-trips** | Repeated `serialize()`/`unserialize()` cycles through `Native` to ensure internal maps (`bindings`, `instances`, metadata) do not grow. |
+| **Signed round-trips** | Repeated `Signed` serialization with HMAC verification to catch resource accumulation in the signer path. |
+| **Complex closures** | Repeated deserialization of closures with a bound `$this` object and `use` variables, exercising the full `__unserialize()` decision tree under load.
+
 ### Code Coverage
 
 Coverage requires Xdebug (`xdebug.mode=coverage`) or PCOV:
