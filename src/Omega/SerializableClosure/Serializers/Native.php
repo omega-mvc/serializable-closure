@@ -109,9 +109,9 @@ final class Native implements SerializableInterface
     /**
      * The "key" that marks an array as recursive.
      *
-     * @var string ARRA_RECURSIVE_KEY Holds te key that marks an array as recursive.
+     * @var string ARRAY_RECURSIVE_KEY Holds the key that marks an array as recursive.
      */
-    public const ARRAY_RECURSIVE_KEY = 'OMEGACMS_SERIALIZABLE_RECURSIVE_KEY';
+    public const string ARRAY_RECURSIVE_KEY = 'OMEGACMS_SERIALIZABLE_RECURSIVE_KEY';
 
     /**
      * Creates a new serializable closure instance.

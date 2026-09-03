@@ -49,7 +49,7 @@ class ClosureStream
      * @var string STREAM_PROTO Holds the stream protocol.
      */
     /** @var string */
-    public const STREAM_PROTO = 'omega-serializable-closure';
+    public const string STREAM_PROTO = 'omega-serializable-closure';
 
     /**
      * Checks if this stream is registered.

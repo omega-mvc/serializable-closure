@@ -284,7 +284,7 @@ test('stress: repeated native serialize/unserialize round-trips', function (): v
         $serializable = new Native($closure);
         $payload      = $serializable->__serialize();
 
-        $restored = new Native(fn (): true);
+        $restored = new Native(fn () => true);
         $restored->__unserialize($payload);
 
         $fn = $restored->getClosure();
@@ -306,7 +306,7 @@ test('stress: repeated signed serialize/unserialize round-trips', function (): v
         $signed     = new Signed($closure, $signer);
         $payload    = $signed->__serialize();
 
-        $restored   = new Signed(fn (): true, $signer);
+        $restored   = new Signed(fn () => true, $signer);
         $restored->__unserialize($payload);
 
         $fn = $restored->getClosure();

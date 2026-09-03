@@ -39,7 +39,9 @@
   "require-dev": {
     "squizlabs/php_codesniffer": "^4.0",
     "phpstan/phpstan": "^2.2",
-    "pestphp/pest": "^5.1"
+    "pestphp/pest": "^5.1",
+    "pestphp/pest-plugin-type-coverage": "^5.0",
+    "pestphp/pest-plugin-phpstan": "^5.2"
   },
   "config": {
     "allow-plugins": {

@@ -1,3 +1,5 @@
+includes:
+    - vendor/pestphp/pest-plugin-phpstan/extension.neon
 parameters:
     level: 10
     tmpDir: cache/phpstan
