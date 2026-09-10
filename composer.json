@@ -41,8 +41,15 @@
     "phpstan/phpstan": "^2.2",
     "pestphp/pest": "^5.1",
     "pestphp/pest-plugin-type-coverage": "^5.0",
-    "pestphp/pest-plugin-phpstan": "^5.2"
+    "pestphp/pest-plugin-phpstan": "^5.2",
+    "phpunit/php-code-coverage": "dev-omega as 14.3.1"
   },
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/omega-mvc/php-code-coverage"
+    }
+  ],
   "config": {
     "allow-plugins": {
       "pestphp/pest-plugin": true
