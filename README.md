@@ -308,10 +308,10 @@ Both must pass before committing; `cache/` holds their result caches and is giti
 
 ### Known Limitations
 
-The suite deliberately keeps **no `@phpstan-ignore` suppression** anywhere in the
-code. PHPStan reports a handful of errors that are all tool/engine limitations,
-not library bugs; they are documented here so they can be read as expected noise
-rather than regressions. `phpstan analyse` therefore exits non-zero by design.
+A handful of PHPStan findings are tool/engine limitations rather than library
+bugs. They are suppressed inline with `@phpstan-ignore-next-line` (tagged with
+their error identifier) while we wait for PHPStan to gain first-class support
+for them; `composer phpstan` therefore exits 0 today.
 
 Two are classic PHPStan false positives:
 
@@ -322,12 +322,12 @@ Two are classic PHPStan false positives:
 
 #### By-reference mutation false positives
 
-The `pest-plugin-phpstan` rules report five `pest.expectation.impossible` errors
-in `NativeTest.php`. These are false positives caused by pass-by-reference
-mutation through `ReflectionMethod::invokeArgs()`: PHPStan cannot track types
-changed in place through a reflected, by-reference call, so it evaluates each
-assertion against the *pre-mutation* static type. At runtime the values are
-concrete and the assertions are valid:
+The `pest-plugin-phpstan` rules also report five `pest.expectation.impossible`
+errors in `NativeTest.php`, suppressed inline. These are false positives caused
+by pass-by-reference mutation through `ReflectionMethod::invokeArgs()`: PHPStan
+cannot track types changed in place through a reflected, by-reference call, so
+it evaluates each assertion against the *pre-mutation* static type. At runtime
+the values are concrete and the assertions are valid:
 
 | Line | Setup type (static) | Runtime value asserted | What the test really verifies |
 |------|---------------------|------------------------|-------------------------------|
@@ -338,10 +338,9 @@ concrete and the assertions are valid:
 | `461` | `SelfReference` | `Closure` | `mapPointersValue` resolves a `SelfReference` inside a `stdClass`. |
 
 These five assertions are the core behavioral checks for closure/self-reference
-resolution, so they are deliberately not suppressed. The remaining
-`pest.expectation.redundant` findings (assertions whose success is already
-guaranteed by the static type) have been removed from the suite, so the only
-remaining PHPStan findings are the documented false positives above.
+resolution, so they are kept verbatim and only the static-analysis noise is
+suppressed. These suppressions are expected to be removed once PHPStan can
+reason about by-reference mutation through reflected `invokeArgs()` calls.
 
 ### PHP Limitations
 

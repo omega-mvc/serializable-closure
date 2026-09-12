@@ -319,6 +319,7 @@ test('mapByReference mirrors the walker for arrays and stdclass', function () {
     $args = [&$uses];
     $method->invokeArgs($scoped, $args);
 
+    // @phpstan-ignore-next-line pest.expectation.impossible
     expect($uses['list'][0])->toBeInstanceOf(Native::class)
         ->and($uses['box'])->toBeInstanceOf(stdClass::class)
         ->and($uses['when'])->toBeInstanceOf(DateTimeImmutable::class);
@@ -350,6 +351,7 @@ test('the same captured closure maps to a single shared wrapper', function () {
     $args = [&$uses];
     $method->invokeArgs($scoped, $args);
 
+    // @phpstan-ignore-next-line pest.expectation.impossible
     expect($uses['first'])->toBeInstanceOf(Native::class)
         ->and($uses['second'])->toBe($uses['first']);
 });
@@ -385,6 +387,7 @@ test('self-referencing closure in use variables maps via SelfReference', functio
     $args = [&$data, $payload['self'], &$deferred];
     $method->invokeArgs($scoped, $args);
 
+    // @phpstan-ignore-next-line pest.expectation.impossible
     expect($data['ref'])->toBeInstanceOf(Closure::class);
 });
 
@@ -438,6 +441,7 @@ test('mapPointersValue handles SelfReference inside nested array', function () {
     $deferred = [];
     $method->invokeArgs($scoped, [&$value, $payload['self'], &$deferred, $scope]);
 
+    // @phpstan-ignore-next-line pest.expectation.impossible
     expect($value['nested']['ref'])->toBeInstanceOf(Closure::class);
 });
 
@@ -458,6 +462,7 @@ test('mapPointersValue handles SelfReference inside stdClass', function () {
     $deferred = [];
     $method->invokeArgs($scoped, [&$box, $payload['self'], &$deferred, $scope]);
 
+    // @phpstan-ignore-next-line pest.expectation.impossible
     expect($box->ref)->toBeInstanceOf(Closure::class);
 });
 

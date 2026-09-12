@@ -247,6 +247,7 @@ test('the kitchen-sink closure keeps working after a round trip', function () {
         $host->sink()
     )));
 
+    // @phpstan-ignore-next-line callable.nonCallable
     expect($restored())->toContain('|N|');
 });
 
@@ -260,6 +261,7 @@ final class TrickyHost
 
         return function () use ($memo): callable {
             if ($memo < 0) {
+                // @phpstan-ignore-next-line function.inner
                 function ghost(): void
                 {
                 }
