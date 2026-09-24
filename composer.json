@@ -32,6 +32,7 @@
     "phpcs": "mkdir -p cache/phpcs && XDEBUG_MODE=off php vendor/bin/phpcs",
     "phpcbf": "XDEBUG_MODE=off php vendor/bin/phpcbf --standard=PSR12",
     "phpstan": "XDEBUG_MODE=off php vendor/bin/phpstan analyse",
+    "type-coverage": "vendor/bin/pest --type-coverage",
     "test-no-coverage": "XDEBUG_MODE=off php vendor/bin/pest --no-coverage",
     "test": "XDEBUG_MODE=coverage vendor/bin/pest --coverage"
   },
