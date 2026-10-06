@@ -18,6 +18,7 @@ namespace Omega\SerializableClosure\Serializers;
 use Closure;
 use DateTimeInterface;
 use Generator;
+use PhpToken;
 use ReflectionException;
 use ReflectionObject;
 use ReflectionProperty;
@@ -30,6 +31,8 @@ use Omega\SerializableClosure\Support\ReflectionClosure;
 use Omega\SerializableClosure\Support\SelfReference;
 use Omega\SerializableClosure\UnsignedSerializableClosure;
 
+use function array_pop;
+use function count;
 use function extract;
 use function is_array;
 use function is_object;
@@ -302,30 +305,19 @@ final class Native implements SerializableInterface
             $scope = $data['scope'];
         }
 
+        // The stream wrapper compiles the source as `return {source};`, so the
+        // payload must be exactly one closure literal: anything else would turn
+        // the include below into an arbitrary code-execution primitive.
+        self::assertRestorableClosureSource($function);
+
         $this->code = $function;
 
         $deferredObjects = [];
 
-        if ($use !== []) {
-            $this->scope = new ClosureScope();
-
-            $use = static::applyResolveHook($use);
-
-            $this->mapPointers($use, $selfHash, $deferredObjects);
-
-
-            extract($use, EXTR_OVERWRITE | EXTR_REFS);
-
-
-            $this->scope = null;
-        }
-
-        $reconstructed = include ClosureStream::STREAM_PROTO . '://' . $function;
-
-
-        if (! $reconstructed instanceof Closure) {
-            throw new ReflectionException('Failed to reconstruct the closure from its serialized code.');
-        }
+        // extract() must run in an isolated scope: a hostile 'use' entry can
+        // shadow any local variable it wants, and the values driving the
+        // include and the bindTo() below must never be reachable from there.
+        $reconstructed = $this->rebuildFromUse($use, $selfHash, $deferredObjects);
 
         if ($bound === $this) {
             $bound = null;
@@ -333,10 +325,193 @@ final class Native implements SerializableInterface
 
         $this->closure = $reconstructed->bindTo($bound, $scope);
 
-
         foreach ($deferredObjects as $item) {
             $item['property']->setValue($item['instance'], $item['object']->getClosure());
         }
+    }
+
+    /**
+     * Rebuilds the closure inside an isolated scope.
+     *
+     * The use variables have to be visible to the `use (...)` clause of the
+     * reconstructed source, which is why they are extracted with references.
+     * Delegating the extraction to a dedicated method — whose only reads after
+     * the extract are the instance's own validated properties — keeps
+     * attacker-controlled keys from shadowing $function, $scope, $bound or
+     * $deferredObjects in __unserialize().
+     *
+     * @param array<string, mixed>                   $use             Holds the resolved use variables.
+     * @param string                                 $selfHash        Holds the serialized self-reference hash.
+     * @param array<int|string, DeferredBinding>     $deferredObjects Holds the deferred object bindings.
+     * @return Closure Returns the reconstructed closure.
+     * @throws ReflectionException If the source does not reconstruct to a closure.
+     */
+    private function rebuildFromUse(array $use, string $selfHash, array &$deferredObjects): Closure
+    {
+        if ($use !== []) {
+            $this->scope = new ClosureScope();
+
+            $use = static::applyResolveHook($use);
+
+            $this->mapPointers($use, $selfHash, $deferredObjects);
+
+            extract($use, EXTR_OVERWRITE | EXTR_REFS);
+
+            $this->scope = null;
+        }
+
+        $reconstructed = include ClosureStream::STREAM_PROTO . '://' . $this->code;
+
+        if (! $reconstructed instanceof Closure) {
+            throw new ReflectionException('Failed to reconstruct the closure from its serialized code.');
+        }
+
+        return $reconstructed;
+    }
+
+    /**
+     * Verifies that the serialized source is a single closure literal.
+     *
+     * Two gates guard the include:
+     *
+     * 1. The very script the stream wrapper will compile (`return {source};`)
+     *    must pass PHP's own parser; genuine compile errors keep surfacing as
+     *    ParseError, exactly as the raw include used to raise them.
+     * 2. A token walk shows one closure literal — optional attributes, static
+     *    or by-reference modifiers included — followed by nothing but trivia.
+     *    Statement separators at the top level are rejected, so payloads such
+     *    as `fn() => 1; system(...)` or `function () {}()` cannot escape the
+     *    expression context.
+     *
+     * @param string $source Holds the serialized closure source.
+     * @return void
+     * @throws ParseError If the wrapped source is not valid PHP.
+     * @throws ReflectionException If the source is not a single closure literal.
+     */
+    private static function assertRestorableClosureSource(string $source): void
+    {
+        PhpToken::tokenize('<?php return ' . $source . ';', TOKEN_PARSE);
+
+        if (! self::isSingleClosureLiteral($source)) {
+            throw new ReflectionException(
+                'Failed to reconstruct the closure from its serialized code: '
+                . 'the payload does not contain a single closure literal.'
+            );
+        }
+    }
+
+    /**
+     * Checks that the source is exactly one closure literal.
+     *
+     * @param string $source Holds the serialized closure source.
+     * @return bool Return true if the source is a single closure literal, false otherwise.
+     */
+    private static function isSingleClosureLiteral(string $source): bool
+    {
+        $stack   = [];
+        $state   = 'head';
+        $isArrow = false;
+
+        // Tokens only exist inside PHP tags: wrap the source and skip the
+        // synthetic opening tag, mirroring how the stream wrapper compiles it.
+        $started = false;
+
+        foreach (PhpToken::tokenize('<?php ' . $source) as $token) {
+            if (! $started) {
+                $started = true;
+
+                continue;
+            }
+            if ($token->is(T_WHITESPACE) || $token->is(T_COMMENT) || $token->is(T_DOC_COMMENT)) {
+                continue;
+            }
+
+            $text = $token->text;
+
+            if ($state === 'done') {
+                return false;
+            }
+
+            if ($state === 'head' && $stack === []) {
+                if ($token->is(T_STATIC) || $text === '&') {
+                    continue;
+                }
+
+                if ($token->is(T_ATTRIBUTE)) {
+                    $stack[] = $text;
+
+                    continue;
+                }
+
+                if ($token->is(T_FUNCTION)) {
+                    $state = 'function';
+
+                    continue;
+                }
+
+                if ($token->is(T_FN)) {
+                    $isArrow = true;
+                    $state   = 'params';
+
+                    continue;
+                }
+
+                return false;
+            }
+
+            if ($state === 'function') {
+                if ($text === '&') {
+                    continue;
+                }
+
+                if ($text === '(') {
+                    $stack[] = $text;
+                    $state   = 'params';
+
+                    continue;
+                }
+
+                return false;
+            }
+
+            if ($token->is(T_ATTRIBUTE) || $token->is(T_CURLY_OPEN) || $token->is(T_DOLLAR_OPEN_CURLY_BRACES) || $text === '(' || $text === '[' || $text === '{') {
+                $stack[] = $text;
+
+                if (! $isArrow && $text === '{' && count($stack) === 1) {
+                    $state = 'body';
+                }
+
+                continue;
+            }
+
+            if ($text === ')' || $text === ']' || $text === '}') {
+                if ($stack === []) {
+                    return false;
+                }
+
+                array_pop($stack);
+
+                if (! $isArrow && $text === '}' && $stack === [] && $state === 'body') {
+                    $state = 'done';
+                }
+
+                continue;
+            }
+
+            if ($stack === []) {
+                if ($isArrow && $text === ';') {
+                    $state = 'done';
+
+                    continue;
+                }
+
+                if ($text === ';' || $text === ',') {
+                    return false;
+                }
+            }
+        }
+
+        return $state === 'done' || ($state === 'params' && $isArrow && $stack === []);
     }
 
     /**
