@@ -360,7 +360,12 @@ final class Native implements SerializableInterface
             $this->scope = null;
         }
 
-        $reconstructed = include ClosureStream::STREAM_PROTO . '://' . $this->code;
+        // Read after the extract() above: the payload source was validated as a
+        // string in __unserialize(), and a hostile 'use' key must not be able to
+        // shadow the local that feeds the include.
+        $code = is_string($this->code) ? $this->code : '';
+
+        $reconstructed = include ClosureStream::STREAM_PROTO . '://' . $code;
 
         if (! $reconstructed instanceof Closure) {
             throw new ReflectionException('Failed to reconstruct the closure from its serialized code.');
@@ -385,7 +390,7 @@ final class Native implements SerializableInterface
      *
      * @param string $source Holds the serialized closure source.
      * @return void
-     * @throws ParseError If the wrapped source is not valid PHP.
+     * @throws \ParseError If the wrapped source is not valid PHP.
      * @throws ReflectionException If the source is not a single closure literal.
      */
     private static function assertRestorableClosureSource(string $source): void
@@ -474,7 +479,14 @@ final class Native implements SerializableInterface
                 return false;
             }
 
-            if ($token->is(T_ATTRIBUTE) || $token->is(T_CURLY_OPEN) || $token->is(T_DOLLAR_OPEN_CURLY_BRACES) || $text === '(' || $text === '[' || $text === '{') {
+            if (
+                $token->is(T_ATTRIBUTE)
+                || $token->is(T_CURLY_OPEN)
+                || $token->is(T_DOLLAR_OPEN_CURLY_BRACES)
+                || $text === '('
+                || $text === '['
+                || $text === '{'
+            ) {
                 $stack[] = $text;
 
                 if (! $isArrow && $text === '{' && count($stack) === 1) {
