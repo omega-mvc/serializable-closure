@@ -13,18 +13,27 @@
 
 declare(strict_types=1);
 
+namespace Tests\Unit\Exception;
+
 use Omega\SerializableClosure\Exception\InvalidSignatureException;
 use Omega\SerializableClosure\Exception\MissingSecretKeyException;
+use Tests\TestCase;
 
-test('invalid signature exception carries a default message', function () {
-    expect((new InvalidSignatureException())->getMessage())->not->toBe('');
-});
+final class SignatureExceptionsTest extends TestCase
+{
+    public function testInvalidSignatureExceptionCarriesADefaultMessage(): void
+    {
+        $this->assertNotSame('', (new InvalidSignatureException())->getMessage());
+    }
 
-test('missing secret key exception carries a default message', function () {
-    expect((new MissingSecretKeyException())->getMessage())->toContain('secret key');
-});
+    public function testMissingSecretKeyExceptionCarriesADefaultMessage(): void
+    {
+        $this->assertStringContainsString('secret key', (new MissingSecretKeyException())->getMessage());
+    }
 
-test('both exceptions accept a custom message', function () {
-    expect((new InvalidSignatureException('custom'))->getMessage())->toBe('custom')
-        ->and((new MissingSecretKeyException('custom'))->getMessage())->toBe('custom');
-});
+    public function testBothExceptionsAcceptACustomMessage(): void
+    {
+        $this->assertSame('custom', (new InvalidSignatureException('custom'))->getMessage());
+        $this->assertSame('custom', (new MissingSecretKeyException('custom'))->getMessage());
+    }
+}

@@ -17,31 +17,37 @@ namespace Tests\Unit\Serializers;
 
 use Omega\SerializableClosure\Serializers\Native;
 use ReflectionMethod;
+use Tests\TestCase;
 
-test('mapPointers exits quietly without an active scope', function () {
-    $native = new Native(fn () => true);
+final class NativeGuardsTest extends TestCase
+{
+    public function testMapPointersExitsQuietlyWithoutAnActiveScope(): void
+    {
+        $native = new Native(fn () => true);
 
-    $method   = new ReflectionMethod(Native::class, 'mapPointers');
-    $payload  = ['kept' => 1];
-    $deferred = [];
+        $method   = new ReflectionMethod(Native::class, 'mapPointers');
+        $payload  = ['kept' => 1];
+        $deferred = [];
 
-    $bound = [&$payload, 'self-hash', &$deferred];
+        $bound = [&$payload, 'self-hash', &$deferred];
 
-    $method->invokeArgs($native, $bound);
+        $method->invokeArgs($native, $bound);
 
-    expect($payload)->toBe(['kept' => 1])
-        ->and($deferred)->toBe([]);
-});
+        $this->assertSame(['kept' => 1], $payload);
+        $this->assertSame([], $deferred);
+    }
 
-test('mapByReference exits quietly without an active scope', function () {
-    $native = new Native(fn () => true);
+    public function testMapByReferenceExitsQuietlyWithoutAnActiveScope(): void
+    {
+        $native = new Native(fn () => true);
 
-    $method  = new ReflectionMethod(Native::class, 'mapByReference');
-    $payload = ['kept' => 2];
+        $method  = new ReflectionMethod(Native::class, 'mapByReference');
+        $payload = ['kept' => 2];
 
-    $bound = [&$payload];
+        $bound = [&$payload];
 
-    $method->invokeArgs($native, $bound);
+        $method->invokeArgs($native, $bound);
 
-    expect($payload)->toBe(['kept' => 2]);
-});
+        $this->assertSame(['kept' => 2], $payload);
+    }
+}

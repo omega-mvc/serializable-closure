@@ -13,490 +13,515 @@
 
 declare(strict_types=1);
 
+namespace Tests\Unit\Serializers;
+
+use ArrayObject;
+use Closure;
+use DateTimeImmutable;
+use Exception;
 use Omega\SerializableClosure\Serializers\Native;
 use Omega\SerializableClosure\Support\ClosureScope;
-use Omega\SerializableClosure\Support\ReflectionClosure;
+use Omega\SerializableClosure\Support\SelfReference;
+use ReflectionClass;
+use ReflectionException;
+use ReflectionMethod;
+use ReflectionProperty;
+use stdClass;
 use Tests\Fixtures\Suit;
 use Tests\Fixtures\UserDefinedFixture;
+use Tests\TestCase;
 
-function nativeOf(Closure $closure): Native
+final class NativeTest extends TestCase
 {
-    return new Native($closure);
-}
-
-function emptyNative(): Native
-{
-    return (new ReflectionClass(Native::class))->newInstanceWithoutConstructor();
-}
-
-function withScope(Native $native, ClosureScope $scope): Native
-{
-    (new ReflectionProperty(Native::class, 'scope'))->setValue($native, $scope);
-
-    return $native;
-}
-
-test('getClosure throws when no closure has been constructed', function () {
-    $native = (new ReflectionClass(Native::class))->newInstanceWithoutConstructor();
-
-    expect(fn () => $native->getClosure())->toThrow(ReflectionException::class);
-});
-
-test('getReflector throws when there is no closure to reflect', function () {
-    $native = (new ReflectionClass(Native::class))->newInstanceWithoutConstructor();
-
-    expect(fn () => $native->getReflector())->toThrow(ReflectionException::class);
-});
-
-test('unserializable function code throws a reflection exception', function () {
-    $payload = [
-        'use' => [],
-        'function' => '42;',
-        'scope' => null,
-        'this' => null,
-        'self' => 'hash',
-    ];
-
-    $native = (new ReflectionClass(Native::class))->newInstanceWithoutConstructor();
-
-    expect(fn () => $native->__unserialize($payload))
-        ->toThrow(ReflectionException::class, 'Failed to reconstruct');
-});
-
-test('an unknown scope class in the payload is ignored', function () {
-    $closure = fn (): int => 1;
-    $payload = nativeOf($closure)->__serialize();
-    $payload['scope'] = 'App\\Ghosts\\NotReal';
-
-    $restored = emptyNative();
-    $restored->__unserialize($payload);
-
-    expect($restored->getClosure()())->toBe(1);
-});
-
-test('a bound-this pointing at the wrapper itself is normalized away', function () {
-    $closure = fn (): int => 1;
-    $native = nativeOf($closure);
-
-    $payload = $native->__serialize();
-    $payload['this'] = $native;
-
-    $target = (new ReflectionClass(Native::class))->newInstanceWithoutConstructor();
-    $target->__unserialize($payload);
-
-    expect($target->getClosure()())->toBe(1);
-});
-
-test('captured variables survive the round trip', function () {
-    $alpha = 10;
-    $beta = 'b';
-
-    $closure = fn (): array => [$alpha, $beta];
-
-    $restored = emptyNative();
-    $restored->__unserialize(nativeOf($closure)->__serialize());
-
-    expect($restored->getClosure()())->toBe([10, 'b']);
-});
-
-test('nested closures inside captured arrays keep working after the round trip', function () {
-    $inner = fn (): int => 2;
-    $outer = fn (): int => ($inner)();
-
-    $holder = ['list' => [$inner]];
-
-    $closure = function () use ($outer, $holder): array {
-        return [$outer(), ($holder['list'][0])()];
-    };
-
-    $restored = emptyNative();
-    $restored->__unserialize(nativeOf($closure)->__serialize());
-
-    expect($restored->getClosure()())->toBe([2, 2]);
-});
-
-test('user-defined objects are rebuilt property by property', function () {
-    $fixture = new UserDefinedFixture();
-
-    $closure = fn (): string => 'ok';
-    $native = nativeOf($closure);
-    $uses = ['fixture' => $fixture];
-
-    $native->__serialize(); // warms reflector/scope state
-    $scoped = withScope($native, new ClosureScope());
-    $method = new ReflectionMethod(Native::class, 'mapByReference');
-    $method->setAccessible(true);
-    $args = [&$uses];
-    $method->invokeArgs($scoped, $args);
-
-    expect($uses['fixture'])->not->toBe($fixture)
-        ->and($uses['fixture'])->toBeInstanceOf(UserDefinedFixture::class)
-        ->and($uses['fixture']->label)->toBe('fixture')
-        ->and($uses['fixture']->frozen)->toBe('immutable');
-});
-
-test('enums and datetimes pass through untouched', function () {
-    $suit = Suit::Spades;
-    $when = new DateTimeImmutable('2024-05-05T10:00:00Z');
-
-    $closure = fn (): bool => true;
-    $native = nativeOf($closure);
-    $uses = ['suit' => $suit, 'when' => $when];
-
-    $native->__serialize();
-    $scoped = withScope($native, new ClosureScope());
-    $method = new ReflectionMethod(Native::class, 'mapByReference');
-    $method->setAccessible(true);
-    $args = [&$uses];
-    $method->invokeArgs($scoped, $args);
-
-    expect($uses['suit'])->toBe($suit)
-        ->and($uses['when'])->toBe($when);
-});
-
-test('transform hooks rewrite the use variables on serialization', function () {
-    Native::$transformUseVariables = fn (array $vars): array => ['sealed' => count($vars)];
-
-    $marker = 'value';
-    $native = nativeOf(fn (): string => $marker);
-    $data = $native->__serialize();
-
-    Native::$transformUseVariables = null;
-
-    expect($data['use'])->toBe(['sealed' => 1]);
-});
-
-test('resolution hooks restore transformed variables on deserialization', function () {
-    Native::$resolveUseVariables = function (array $vars): array {
-        return ['marker' => strtoupper(is_string($raw = $vars['enveloped'] ?? null) ? $raw : '')];
-    };
-
-    $payload = [
-        'use' => ['enveloped' => 'abc'],
-        'function' => 'fn (): string => $marker;',
-        'scope' => null,
-        'this' => null,
-        'self' => 'hash',
-    ];
-
-    $native = (new ReflectionClass(Native::class))->newInstanceWithoutConstructor();
-    $native->__unserialize($payload);
-
-    Native::$resolveUseVariables = null;
-
-    expect($native->getClosure()())->toBe('ABC');
-});
-
-test('transform hooks returning non-iterables degrade to an empty use set', function () {
-    Native::$transformUseVariables = fn (): string => 'not-an-array';
-
-    $marker = 'kept-out';
-    $native = nativeOf(fn (): string => $marker);
-    $data = $native->__serialize();
-
-    Native::$transformUseVariables = null;
-
-    expect($data['use'])->toBe([]);
-});
-
-test('re-unserializing the same instance normalizes self-referencing this', function () {
-    $payload = [
-        'use' => [],
-        'function' => 'fn (): int => 1;',
-        'scope' => null,
-        'this' => null,
-        'self' => 'hash',
-    ];
-
-    $native = emptyNative();
-    $native->__unserialize($payload);
-
-    // Second pass: the payload now points back at the very wrapper being restored.
-    $payload['this'] = $native;
-    $native->__unserialize($payload);
-
-    expect($native->getClosure()())->toBe(1);
-});
-
-test('the closure walker passes scalars through untouched', function () {
-    $method = new ReflectionMethod(Native::class, 'wrapClosures');
-    $method->setAccessible(true);
-
-    $value = 'plain-string';
-
-    expect($method->invoke(null, $value, new ClosureScope()))->toBe('plain-string');
-});
-
-test('self-referencing arrays hit the recursion sentinel once', function () {
-    $loop = [];
-    $loop['self'] = &$loop;
-    $uses = ['loop' => &$loop];
-
-    $scoped = withScope(nativeOf(fn (): int => 1), new ClosureScope());
-    $method = new ReflectionMethod(Native::class, 'mapByReference');
-    $method->setAccessible(true);
-    $args = [&$uses];
-    $method->invokeArgs($scoped, $args);
-
-    expect($uses['loop'])->toHaveKey('self')
-        ->not->toHaveKey(Native::ARRAY_RECURSIVE_KEY);
-});
-
-test('aliased objects are serialized through the scope cache', function () {
-    $host = new \Tests\Fixtures\Rich\RichHost();
-    $host->boundWithProps();
-
-    $closure = fn (): int => 1;
-    $scoped = withScope(nativeOf($closure), new ClosureScope());
-
-    $method = new ReflectionMethod(Native::class, 'wrapClosures');
-    $method->setAccessible(true);
-
-    $storage = new ClosureScope();
-    $first   = $method->invoke(null, $host->aliasOne, $storage);
-    $second  = $method->invoke(null, $host->aliasTwo, $storage);
-    $internal = $method->invoke(null, $host->internal, new ClosureScope());
-
-    expect($first)->toBeInstanceOf(\Tests\Fixtures\UserDefinedFixture::class)
-        ->and($second)->toBeInstanceOf(\Tests\Fixtures\UserDefinedFixture::class)
-        ->and($internal)->toBeInstanceOf(ArrayObject::class);
-});
-
-test('the walker wraps closures inside plain arrays', function () {
-    $method = new ReflectionMethod(Native::class, 'wrapClosures');
-    $method->setAccessible(true);
-
-    $payload = [fn (): int => 1, 'scalar', [fn (): int => 2]];
-
-    $wrapped = $method->invoke(null, $payload, new ClosureScope());
-
-    if (! is_array($wrapped) || ! isset($wrapped[2]) || ! is_array($wrapped[2])) {
-        throw new Exception('Unexpected walker shape.');
+    private static function nativeOf(Closure $closure): Native
+    {
+        return new Native($closure);
     }
 
-    expect($wrapped[0])->toBeInstanceOf(Native::class)
-        ->and($wrapped[1])->toBe('scalar')
-        ->and($wrapped[2][0])->toBeInstanceOf(Native::class);
-});
-
-test('stdClass payloads are cloned with their closures wrapped', function () {
-    $method = new ReflectionMethod(Native::class, 'wrapClosures');
-    $method->setAccessible(true);
-
-    $box = new stdClass();
-    $box->cb = fn (): int => 2;
-
-    $wrapped = $method->invoke(null, $box, new ClosureScope());
-
-    if (! $wrapped instanceof stdClass) {
-        throw new Exception('Unexpected walker result.');
+    private static function emptyNative(): Native
+    {
+        return (new ReflectionClass(Native::class))->newInstanceWithoutConstructor();
     }
 
-    expect($wrapped->cb)->toBeInstanceOf(Native::class);
-});
+    private static function withScope(Native $native, ClosureScope $scope): Native
+    {
+        (new ReflectionProperty(Native::class, 'scope'))->setValue($native, $scope);
 
-test('re-encountering the same object returns the cached instance', function () {
-    $method = new ReflectionMethod(Native::class, 'wrapClosures');
-    $method->setAccessible(true);
+        return $native;
+    }
 
-    $object = new Tests\Fixtures\UserDefinedFixture();
-    $storage = new ClosureScope();
+    public function testGetClosureThrowsWhenNoClosureHasBeenConstructed(): void
+    {
+        $native = self::emptyNative();
 
-    $first = $method->invoke(null, $object, $storage);
-    $second = $method->invoke(null, $object, $storage);
+        $this->expectException(ReflectionException::class);
+        $native->getClosure();
+    }
 
-    expect($first)->toBeInstanceOf(Tests\Fixtures\UserDefinedFixture::class)
-        ->and($first)->not->toBe($object)
-        ->and($second)->toBe($first);
-});
+    public function testGetReflectorThrowsWhenThereIsNoClosureToReflect(): void
+    {
+        $native = self::emptyNative();
 
-test('mapByReference mirrors the walker for arrays and stdclass', function () {
-    $scoped = withScope(nativeOf(fn (): int => 1), new ClosureScope());
-    $method = new ReflectionMethod(Native::class, 'mapByReference');
-    $method->setAccessible(true);
+        $this->expectException(ReflectionException::class);
+        $native->getReflector();
+    }
 
-    $uses = ['list' => [fn (): int => 3], 'box' => new stdClass(), 'when' => new DateTimeImmutable()];
-    $args = [&$uses];
-    $method->invokeArgs($scoped, $args);
+    public function testUnserializableFunctionCodeThrowsAReflectionException(): void
+    {
+        $payload = [
+            'use' => [],
+            'function' => '42;',
+            'scope' => null,
+            'this' => null,
+            'self' => 'hash',
+        ];
 
-    // @phpstan-ignore-next-line pest.expectation.impossible
-    expect($uses['list'][0])->toBeInstanceOf(Native::class)
-        ->and($uses['box'])->toBeInstanceOf(stdClass::class)
-        ->and($uses['when'])->toBeInstanceOf(DateTimeImmutable::class);
-});
+        $native = self::emptyNative();
 
-test('resolve hooks without entries keep the payload untouched', function () {
-    Native::$resolveUseVariables = null;
+        $this->expectException(ReflectionException::class);
+        $this->expectExceptionMessage('Failed to reconstruct');
+        $native->__unserialize($payload);
+    }
 
-    $native = emptyNative();
-    $native->__unserialize([
-        'use' => [],
-        'function' => 'fn (): int => 8;',
-        'scope' => null,
-        'this' => null,
-        'self' => 'hash',
-    ]);
+    public function testAnUnknownScopeClassInThePayloadIsIgnored(): void
+    {
+        $closure = fn (): int => 1;
+        $payload = self::nativeOf($closure)->__serialize();
+        $payload['scope'] = 'App\\Ghosts\\NotReal';
 
-    expect($native->getClosure()())->toBe(8);
-});
+        $restored = self::emptyNative();
+        $restored->__unserialize($payload);
 
-test('the same captured closure maps to a single shared wrapper', function () {
-    $scoped = withScope(nativeOf(fn (): int => 1), new ClosureScope());
-    $method = new ReflectionMethod(Native::class, 'mapByReference');
-    $method->setAccessible(true);
+        $this->assertSame(1, $restored->getClosure()());
+    }
 
-    $shared = fn (): int => 9;
-    $uses = ['first' => $shared, 'second' => $shared];
+    public function testABoundThisPointingAtTheWrapperItselfIsNormalizedAway(): void
+    {
+        $closure = fn (): int => 1;
+        $native = self::nativeOf($closure);
 
-    $args = [&$uses];
-    $method->invokeArgs($scoped, $args);
+        $payload = $native->__serialize();
+        $payload['this'] = $native;
 
-    // @phpstan-ignore-next-line pest.expectation.impossible
-    expect($uses['first'])->toBeInstanceOf(Native::class)
-        ->and($uses['second'])->toBe($uses['first']);
-});
+        $target = self::emptyNative();
+        $target->__unserialize($payload);
 
-test('the same captured object maps to a single rebuilt instance', function () {
-    $scoped = withScope(nativeOf(fn (): int => 1), new ClosureScope());
-    $method = new ReflectionMethod(Native::class, 'mapByReference');
-    $method->setAccessible(true);
+        $this->assertSame(1, $target->getClosure()());
+    }
 
-    $object = new \Tests\Fixtures\UserDefinedFixture();
-    $uses = ['one' => $object, 'two' => $object];
+    public function testCapturedVariablesSurviveTheRoundTrip(): void
+    {
+        $alpha = 10;
+        $beta = 'b';
 
-    $args = [&$uses];
-    $method->invokeArgs($scoped, $args);
+        $closure = fn (): array => [$alpha, $beta];
 
-    expect($uses['one'])->not->toBe($object)
-        ->and($uses['two'])->toBe($uses['one']);
-});
+        $restored = self::emptyNative();
+        $restored->__unserialize(self::nativeOf($closure)->__serialize());
 
-test('self-referencing closure in use variables maps via SelfReference', function () {
-    $outer = fn (): int => 1;
-    $native = nativeOf($outer);
-    $payload = $native->__serialize();
+        $this->assertSame([10, 'b'], $restored->getClosure()());
+    }
 
-    $selfRef = new \Omega\SerializableClosure\Support\SelfReference($payload['self']);
+    public function testNestedClosuresInsideCapturedArraysKeepWorkingAfterTheRoundTrip(): void
+    {
+        $inner = fn (): int => 2;
+        $outer = fn (): int => ($inner)();
 
-    $scoped = withScope(nativeOf(fn (): int => 1), new ClosureScope());
-    $method = new ReflectionMethod(Native::class, 'mapPointers');
-    $method->setAccessible(true);
+        $holder = ['list' => [$inner]];
 
-    $data = ['ref' => $selfRef];
-    $deferred = [];
-    $args = [&$data, $payload['self'], &$deferred];
-    $method->invokeArgs($scoped, $args);
+        $closure = function () use ($outer, $holder): array {
+            return [$outer(), ($holder['list'][0])()];
+        };
 
-    // @phpstan-ignore-next-line pest.expectation.impossible
-    expect($data['ref'])->toBeInstanceOf(Closure::class);
-});
+        $restored = self::emptyNative();
+        $restored->__unserialize(self::nativeOf($closure)->__serialize());
 
-test('recursive array in use variables is handled by mapByReference', function () {
-    $loop = [];
-    $loop['self'] = &$loop;
-    $loop['value'] = 42;
+        $this->assertSame([2, 2], $restored->getClosure()());
+    }
 
-    $uses = ['data' => &$loop];
+    public function testUserDefinedObjectsAreRebuiltPropertyByProperty(): void
+    {
+        $fixture = new UserDefinedFixture();
 
-    $scoped = withScope(nativeOf(fn (): int => 1), new ClosureScope());
-    $method = new ReflectionMethod(Native::class, 'mapByReference');
-    $method->setAccessible(true);
-    $args = [&$uses];
-    $method->invokeArgs($scoped, $args);
+        $closure = fn (): string => 'ok';
+        $native = self::nativeOf($closure);
+        $uses = ['fixture' => $fixture];
 
-    expect($uses['data'])->toHaveKey('self')
-        ->toHaveKey('value')
-        ->not->toHaveKey(Native::ARRAY_RECURSIVE_KEY)
-        ->and($uses['data']['value'])->toBe(42);
-});
+        $native->__serialize(); // warms reflector/scope state
+        $scoped = self::withScope($native, new ClosureScope());
+        $method = new ReflectionMethod(Native::class, 'mapByReference');
+        $args = [&$uses];
+        $method->invokeArgs($scoped, $args);
 
-test('wrapClosures returns cached stdClass on second visit', function () {
-    $method = new ReflectionMethod(Native::class, 'wrapClosures');
-    $method->setAccessible(true);
+        $this->assertNotSame($fixture, $uses['fixture']);
+        $this->assertInstanceOf(UserDefinedFixture::class, $uses['fixture']);
+        $this->assertSame('fixture', $uses['fixture']->label);
+        $this->assertSame('immutable', $uses['fixture']->frozen);
+    }
 
-    $box = new stdClass();
-    $box->name = 'test';
-    $storage = new ClosureScope();
+    public function testEnumsAndDatetimesPassThroughUntouched(): void
+    {
+        $suit = Suit::Spades;
+        $when = new DateTimeImmutable('2024-05-05T10:00:00Z');
 
-    $first = $method->invoke(null, $box, $storage);
-    $second = $method->invoke(null, $box, $storage);
+        $closure = fn (): bool => true;
+        $native = self::nativeOf($closure);
+        $uses = ['suit' => $suit, 'when' => $when];
 
-    expect($first)->toBeInstanceOf(stdClass::class)
-        ->and($second)->toBe($first);
-});
+        $native->__serialize();
+        $scoped = self::withScope($native, new ClosureScope());
+        $method = new ReflectionMethod(Native::class, 'mapByReference');
+        $args = [&$uses];
+        $method->invokeArgs($scoped, $args);
 
-test('mapPointersValue handles SelfReference inside nested array', function () {
-    $closure = fn (): int => 1;
-    $native = nativeOf($closure);
-    $payload = $native->__serialize();
+        $this->assertSame($suit, $uses['suit']);
+        $this->assertSame($when, $uses['when']);
+    }
 
-    $selfRef = new \Omega\SerializableClosure\Support\SelfReference($payload['self']);
+    public function testTransformHooksRewriteTheUseVariablesOnSerialization(): void
+    {
+        Native::$transformUseVariables = fn (array $vars): array => ['sealed' => count($vars)];
 
-    $scope = new ClosureScope();
-    $scoped = withScope(nativeOf(fn (): int => 1), $scope);
-    $method = new ReflectionMethod(Native::class, 'mapPointersValue');
-    $method->setAccessible(true);
+        $marker = 'value';
+        $native = self::nativeOf(fn (): string => $marker);
+        $data = $native->__serialize();
 
-    $value = ['nested' => ['ref' => $selfRef]];
-    $deferred = [];
-    $method->invokeArgs($scoped, [&$value, $payload['self'], &$deferred, $scope]);
+        Native::$transformUseVariables = null;
 
-    // @phpstan-ignore-next-line pest.expectation.impossible
-    expect($value['nested']['ref'])->toBeInstanceOf(Closure::class);
-});
+        $this->assertSame(['sealed' => 1], $data['use']);
+    }
 
-test('mapPointersValue handles SelfReference inside stdClass', function () {
-    $closure = fn (): int => 1;
-    $native = nativeOf($closure);
-    $payload = $native->__serialize();
+    public function testResolutionHooksRestoreTransformedVariablesOnDeserialization(): void
+    {
+        Native::$resolveUseVariables = function (array $vars): array {
+            return ['marker' => strtoupper(is_string($raw = $vars['enveloped'] ?? null) ? $raw : '')];
+        };
 
-    $selfRef = new \Omega\SerializableClosure\Support\SelfReference($payload['self']);
+        $payload = [
+            'use' => ['enveloped' => 'abc'],
+            'function' => 'fn (): string => $marker;',
+            'scope' => null,
+            'this' => null,
+            'self' => 'hash',
+        ];
 
-    $scope = new ClosureScope();
-    $scoped = withScope(nativeOf(fn (): int => 1), $scope);
-    $method = new ReflectionMethod(Native::class, 'mapPointersValue');
-    $method->setAccessible(true);
+        $native = self::emptyNative();
+        $native->__unserialize($payload);
 
-    $box = new stdClass();
-    $box->ref = $selfRef;
-    $deferred = [];
-    $method->invokeArgs($scoped, [&$box, $payload['self'], &$deferred, $scope]);
+        Native::$resolveUseVariables = null;
 
-    // @phpstan-ignore-next-line pest.expectation.impossible
-    expect($box->ref)->toBeInstanceOf(Closure::class);
-});
+        $this->assertSame('ABC', $native->getClosure()());
+    }
 
-test('mapPointersValue returns early for already-seen stdClass scope', function () {
-    $scope = new ClosureScope();
-    $scoped = withScope(nativeOf(fn (): int => 1), $scope);
-    $method = new ReflectionMethod(Native::class, 'mapPointersValue');
-    $method->setAccessible(true);
+    public function testTransformHooksReturningNonIterablesDegradeToAnEmptyUseSet(): void
+    {
+        Native::$transformUseVariables = fn (): string => 'not-an-array';
 
-    $box = new stdClass();
-    $box->name = 'original';
+        $marker = 'kept-out';
+        $native = self::nativeOf(fn (): string => $marker);
+        $data = $native->__serialize();
 
-    $storage = new ClosureScope();
-    $storage[$box] = true;
+        Native::$transformUseVariables = null;
 
-    $deferred = [];
-    $method->invokeArgs($scoped, [&$box, 'hash', &$deferred, $storage]);
+        $this->assertSame([], $data['use']);
+    }
 
-    expect($box->name)->toBe('original');
-});
+    public function testReUnserializingTheSameInstanceNormalizesSelfReferencingThis(): void
+    {
+        $payload = [
+            'use' => [],
+            'function' => 'fn (): int => 1;',
+            'scope' => null,
+            'this' => null,
+            'self' => 'hash',
+        ];
 
-test('mapPointersValue returns early for already-seen object scope', function () {
-    $scope = new ClosureScope();
-    $scoped = withScope(nativeOf(fn (): int => 1), $scope);
-    $method = new ReflectionMethod(Native::class, 'mapPointersValue');
-    $method->setAccessible(true);
+        $native = self::emptyNative();
+        $native->__unserialize($payload);
 
-    $obj = new \Tests\Fixtures\UserDefinedFixture();
+        // Second pass: the payload now points back at the very wrapper being restored.
+        $payload['this'] = $native;
+        $native->__unserialize($payload);
 
-    $storage = new ClosureScope();
-    $storage[$obj] = true;
+        $this->assertSame(1, $native->getClosure()());
+    }
 
-    $deferred = [];
-    $method->invokeArgs($scoped, [&$obj, 'hash', &$deferred, $storage]);
+    public function testTheClosureWalkerPassesScalarsThroughUntouched(): void
+    {
+        $method = new ReflectionMethod(Native::class, 'wrapClosures');
 
-    expect($obj->label)->toBe('fixture');
-});
+        $value = 'plain-string';
+
+        $this->assertSame('plain-string', $method->invoke(null, $value, new ClosureScope()));
+    }
+
+    public function testSelfReferencingArraysHitTheRecursionSentinelOnce(): void
+    {
+        $loop = [];
+        $loop['self'] = &$loop;
+        $uses = ['loop' => &$loop];
+
+        $scoped = self::withScope(self::nativeOf(fn (): int => 1), new ClosureScope());
+        $method = new ReflectionMethod(Native::class, 'mapByReference');
+        $args = [&$uses];
+        $method->invokeArgs($scoped, $args);
+
+        $this->assertArrayHasKey('self', $uses['loop']);
+        $this->assertArrayNotHasKey(Native::ARRAY_RECURSIVE_KEY, $uses['loop']);
+    }
+
+    public function testAliasedObjectsAreSerializedThroughTheScopeCache(): void
+    {
+        $host = new \Tests\Fixtures\Rich\RichHost();
+        $host->boundWithProps();
+
+        $closure = fn (): int => 1;
+        $scoped = self::withScope(self::nativeOf($closure), new ClosureScope());
+
+        $method = new ReflectionMethod(Native::class, 'wrapClosures');
+
+        $storage = new ClosureScope();
+        $first   = $method->invoke(null, $host->aliasOne, $storage);
+        $second  = $method->invoke(null, $host->aliasTwo, $storage);
+        $internal = $method->invoke(null, $host->internal, new ClosureScope());
+
+        $this->assertInstanceOf(UserDefinedFixture::class, $first);
+        $this->assertInstanceOf(UserDefinedFixture::class, $second);
+        $this->assertInstanceOf(ArrayObject::class, $internal);
+    }
+
+    public function testTheWalkerWrapsClosuresInsidePlainArrays(): void
+    {
+        $method = new ReflectionMethod(Native::class, 'wrapClosures');
+
+        $payload = [fn (): int => 1, 'scalar', [fn (): int => 2]];
+
+        $wrapped = $method->invoke(null, $payload, new ClosureScope());
+
+        if (! is_array($wrapped) || ! isset($wrapped[2]) || ! is_array($wrapped[2])) {
+            throw new Exception('Unexpected walker shape.');
+        }
+
+        $this->assertInstanceOf(Native::class, $wrapped[0]);
+        $this->assertSame('scalar', $wrapped[1]);
+        $this->assertInstanceOf(Native::class, $wrapped[2][0]);
+    }
+
+    public function testStdClassPayloadsAreClonedWithTheirClosuresWrapped(): void
+    {
+        $method = new ReflectionMethod(Native::class, 'wrapClosures');
+
+        $box = new stdClass();
+        $box->cb = fn (): int => 2;
+
+        $wrapped = $method->invoke(null, $box, new ClosureScope());
+
+        if (! $wrapped instanceof stdClass) {
+            throw new Exception('Unexpected walker result.');
+        }
+
+        $this->assertInstanceOf(Native::class, $wrapped->cb);
+    }
+
+    public function testReEncounteringTheSameObjectReturnsTheCachedInstance(): void
+    {
+        $method = new ReflectionMethod(Native::class, 'wrapClosures');
+
+        $object  = new UserDefinedFixture();
+        $storage = new ClosureScope();
+
+        $first  = $method->invoke(null, $object, $storage);
+        $second = $method->invoke(null, $object, $storage);
+
+        $this->assertInstanceOf(UserDefinedFixture::class, $first);
+        $this->assertNotSame($object, $first);
+        $this->assertSame($first, $second);
+    }
+
+    public function testMapByReferenceMirrorsTheWalkerForArraysAndStdclass(): void
+    {
+        $scoped = self::withScope(self::nativeOf(fn (): int => 1), new ClosureScope());
+        $method = new ReflectionMethod(Native::class, 'mapByReference');
+
+        $uses = ['list' => [fn (): int => 3], 'box' => new stdClass(), 'when' => new DateTimeImmutable()];
+        $args = [&$uses];
+        $method->invokeArgs($scoped, $args);
+
+        $this->assertInstanceOf(Native::class, $uses['list'][0]);
+        $this->assertInstanceOf(stdClass::class, $uses['box']);
+        $this->assertInstanceOf(DateTimeImmutable::class, $uses['when']);
+    }
+
+    public function testResolveHooksWithoutEntriesKeepThePayloadUntouched(): void
+    {
+        Native::$resolveUseVariables = null;
+
+        $native = self::emptyNative();
+        $native->__unserialize([
+            'use' => [],
+            'function' => 'fn (): int => 8;',
+            'scope' => null,
+            'this' => null,
+            'self' => 'hash',
+        ]);
+
+        $this->assertSame(8, $native->getClosure()());
+    }
+
+    public function testTheSameCapturedClosureMapsToASingleSharedWrapper(): void
+    {
+        $scoped = self::withScope(self::nativeOf(fn (): int => 1), new ClosureScope());
+        $method = new ReflectionMethod(Native::class, 'mapByReference');
+
+        $shared = fn (): int => 9;
+        $uses = ['first' => $shared, 'second' => $shared];
+
+        $args = [&$uses];
+        $method->invokeArgs($scoped, $args);
+
+        $this->assertSame($uses['first'], $uses['second']);
+        $this->assertInstanceOf(Native::class, $uses['first']);
+    }
+
+    public function testTheSameCapturedObjectMapsToASingleRebuiltInstance(): void
+    {
+        $scoped = self::withScope(self::nativeOf(fn (): int => 1), new ClosureScope());
+        $method = new ReflectionMethod(Native::class, 'mapByReference');
+
+        $object = new UserDefinedFixture();
+        $uses = ['one' => $object, 'two' => $object];
+
+        $args = [&$uses];
+        $method->invokeArgs($scoped, $args);
+
+        $this->assertNotSame($object, $uses['one']);
+        $this->assertSame($uses['one'], $uses['two']);
+    }
+
+    public function testSelfReferencingClosureInUseVariablesMapsViaSelfReference(): void
+    {
+        $outer = fn (): int => 1;
+        $native = self::nativeOf($outer);
+        $payload = $native->__serialize();
+
+        $selfRef = new SelfReference($payload['self']);
+
+        $scoped = self::withScope(self::nativeOf(fn (): int => 1), new ClosureScope());
+        $method = new ReflectionMethod(Native::class, 'mapPointers');
+
+        $data = ['ref' => $selfRef];
+        $deferred = [];
+        $args = [&$data, $payload['self'], &$deferred];
+        $method->invokeArgs($scoped, $args);
+
+        $this->assertInstanceOf(Closure::class, $data['ref']);
+    }
+
+    public function testRecursiveArrayInUseVariablesIsHandledByMapByReference(): void
+    {
+        $loop = [];
+        $loop['self'] = &$loop;
+        $loop['value'] = 42;
+
+        $uses = ['data' => &$loop];
+
+        $scoped = self::withScope(self::nativeOf(fn (): int => 1), new ClosureScope());
+        $method = new ReflectionMethod(Native::class, 'mapByReference');
+        $args = [&$uses];
+        $method->invokeArgs($scoped, $args);
+
+        $this->assertArrayHasKey('self', $uses['data']);
+        $this->assertArrayHasKey('value', $uses['data']);
+        $this->assertArrayNotHasKey(Native::ARRAY_RECURSIVE_KEY, $uses['data']);
+        $this->assertSame(42, $uses['data']['value']);
+    }
+
+    public function testWrapClosuresReturnsCachedStdClassOnSecondVisit(): void
+    {
+        $method = new ReflectionMethod(Native::class, 'wrapClosures');
+
+        $box = new stdClass();
+        $box->name = 'test';
+        $storage = new ClosureScope();
+
+        $first  = $method->invoke(null, $box, $storage);
+        $second = $method->invoke(null, $box, $storage);
+
+        $this->assertInstanceOf(stdClass::class, $first);
+        $this->assertSame($first, $second);
+    }
+
+    public function testMapPointersValueHandlesSelfReferenceInsideNestedArray(): void
+    {
+        $closure = fn (): int => 1;
+        $native = self::nativeOf($closure);
+        $payload = $native->__serialize();
+
+        $selfRef = new SelfReference($payload['self']);
+
+        $scope = new ClosureScope();
+        $scoped = self::withScope(self::nativeOf(fn (): int => 1), $scope);
+        $method = new ReflectionMethod(Native::class, 'mapPointersValue');
+
+        $value = ['nested' => ['ref' => $selfRef]];
+        $deferred = [];
+        $method->invokeArgs($scoped, [&$value, $payload['self'], &$deferred, $scope]);
+
+        $this->assertInstanceOf(Closure::class, $value['nested']['ref']);
+    }
+
+    public function testMapPointersValueHandlesSelfReferenceInsideStdClass(): void
+    {
+        $closure = fn (): int => 1;
+        $native = self::nativeOf($closure);
+        $payload = $native->__serialize();
+
+        $selfRef = new SelfReference($payload['self']);
+
+        $scope = new ClosureScope();
+        $scoped = self::withScope(self::nativeOf(fn (): int => 1), $scope);
+        $method = new ReflectionMethod(Native::class, 'mapPointersValue');
+
+        $box = new stdClass();
+        $box->ref = $selfRef;
+        $deferred = [];
+        $method->invokeArgs($scoped, [&$box, $payload['self'], &$deferred, $scope]);
+
+        $this->assertInstanceOf(Closure::class, $box->ref);
+    }
+
+    public function testMapPointersValueReturnsEarlyForAlreadySeenStdClassScope(): void
+    {
+        $scope = new ClosureScope();
+        $scoped = self::withScope(self::nativeOf(fn (): int => 1), $scope);
+        $method = new ReflectionMethod(Native::class, 'mapPointersValue');
+
+        $box = new stdClass();
+        $box->name = 'original';
+
+        $storage = new ClosureScope();
+        $storage[$box] = true;
+
+        $deferred = [];
+        $method->invokeArgs($scoped, [&$box, 'hash', &$deferred, $storage]);
+
+        $this->assertSame('original', $box->name);
+    }
+
+    public function testMapPointersValueReturnsEarlyForAlreadySeenObjectScope(): void
+    {
+        $scope = new ClosureScope();
+        $scoped = self::withScope(self::nativeOf(fn (): int => 1), $scope);
+        $method = new ReflectionMethod(Native::class, 'mapPointersValue');
+
+        $obj = new UserDefinedFixture();
+
+        $storage = new ClosureScope();
+        $storage[$obj] = true;
+
+        $deferred = [];
+        $method->invokeArgs($scoped, [&$obj, 'hash', &$deferred, $storage]);
+
+        $this->assertSame('fixture', $obj->label);
+    }
+}

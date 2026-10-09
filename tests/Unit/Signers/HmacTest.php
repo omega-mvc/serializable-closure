@@ -13,32 +13,43 @@
 
 declare(strict_types=1);
 
+namespace Tests\Unit\Signers;
+
 use Omega\SerializableClosure\Signers\Hmac;
+use Tests\TestCase;
 
-test('sign returns the payload with a lowercase hex hash', function () {
-    $signature = (new Hmac('secret'))->sign('DATA');
+final class HmacTest extends TestCase
+{
+    public function testSignReturnsThePayloadWithALowercaseHexHash(): void
+    {
+        $signature = (new Hmac('secret'))->sign('DATA');
 
-    expect($signature)->toHaveKeys(['serializable', 'hash'])
-        ->and($signature['serializable'])->toBe('DATA')
-        ->and($signature['hash'])->toMatch('/^[0-9a-f]{64}$/');
-});
+        $this->assertArrayHasKey('serializable', $signature);
+        $this->assertArrayHasKey('hash', $signature);
+        $this->assertSame('DATA', $signature['serializable']);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $signature['hash']);
+    }
 
-test('verify accepts a signature produced with the same secret', function () {
-    $signer = new Hmac('secret');
+    public function testVerifyAcceptsASignatureProducedWithTheSameSecret(): void
+    {
+        $signer = new Hmac('secret');
 
-    expect($signer->verify($signer->sign('payload')))->toBeTrue();
-});
+        $this->assertTrue($signer->verify($signer->sign('payload')));
+    }
 
-test('verify rejects a signature produced with another secret', function () {
-    $signed = (new Hmac('secret'))->sign('payload');
+    public function testVerifyRejectsASignatureProducedWithAnotherSecret(): void
+    {
+        $signed = (new Hmac('secret'))->sign('payload');
 
-    expect((new Hmac('intruder'))->verify($signed))->toBeFalse();
-});
+        $this->assertFalse((new Hmac('intruder'))->verify($signed));
+    }
 
-test('verify rejects tampered payloads', function () {
-    $signer = new Hmac('secret');
-    $signature = $signer->sign('payload');
-    $signature['serializable'] = 'PAYLOAD';
+    public function testVerifyRejectsTamperedPayloads(): void
+    {
+        $signer = new Hmac('secret');
+        $signature = $signer->sign('payload');
+        $signature['serializable'] = 'PAYLOAD';
 
-    expect($signer->verify($signature))->toBeFalse();
-});
+        $this->assertFalse($signer->verify($signature));
+    }
+}

@@ -17,240 +17,992 @@ namespace Tests\Unit\Support;
 
 use Closure;
 use Exception;
-use Omega\SerializableClosure\Serializers\Native;
+use Omega\SerializableClosure\SerializableClosure;
 use Omega\SerializableClosure\Support\ReflectionClosure;
-use Tests\Fixtures\ExposedReflectionClosure;
 use ReflectionException as NativeReflectionException;
 use Tests\Fixtures\AttributeHost;
+use Tests\Fixtures\ClassResolutionProbe;
+use Tests\Fixtures\ExposedReflectionClosure;
+use Tests\Fixtures\FetchScanProbe;
+use Tests\Fixtures\Grouped\GroupHost;
+use Tests\Fixtures\LazyClassProbe;
+use Tests\Fixtures\LazyFunctionsProbe;
 use Tests\Fixtures\MethodHost;
 use Tests\Fixtures\MethodHostChild;
 use Tests\Fixtures\Rich\RichHost;
 use Tests\Fixtures\TokenizerEdgeCases;
-use Tests\Fixtures\Grouped\GroupHost;
-use Tests\Fixtures\LazyFunctionsProbe;
-use Tests\Fixtures\LazyClassProbe;
-use Tests\Fixtures\ClassResolutionProbe;
+use Tests\TestCase;
 
-function reflect(Closure $closure): ReflectionClosure
+final class ReflectionClosureTest extends TestCase
 {
-    return new ReflectionClosure($closure);
-}
-
-test('it detects plain closures', function () {
-    $rc = reflect(function (): int {
-        return 1;
-    });
-
-    expect($rc->isStatic())->toBeFalse()
-        ->and($rc->isShortClosure())->toBeFalse();
-});
-
-test('it detects static closures', function () {
-    $rc = reflect(static function (): int {
-        return 2;
-    });
-
-    expect($rc->isStatic())->toBeTrue()
-        ->and($rc->isShortClosure())->toBeFalse();
-});
-
-test('it detects arrow functions', function () {
-    $rc = reflect(fn (): int => 3);
-
-    expect($rc->isStatic())->toBeFalse()
-        ->and($rc->isShortClosure())->toBeTrue();
-});
-
-test('it detects static arrow functions', function () {
-    $rc = reflect(static fn (): int => 4);
-
-    expect($rc->isStatic())->toBeTrue()
-        ->and($rc->isShortClosure())->toBeTrue();
-});
-
-test('a bound closure requires binding but not scope', function () {
-    $rc = reflect((new MethodHost())->boundThis());
-
-    expect($rc->isBindingRequired())->toBeTrue()
-        ->and($rc->isScopeRequired())->toBeFalse();
-});
-
-test('self:: references require the scope class', function () {
-    $rc = reflect((new MethodHost())->selfConstant());
-
-    expect($rc->isScopeRequired())->toBeTrue()
-        ->and($rc->isBindingRequired())->toBeFalse();
-});
-
-test('parent:: references require the scope class too', function () {
-    $rc = reflect((new MethodHostChild())->parentConstant());
-
-    expect($rc->isScopeRequired())->toBeTrue();
-});
-
-test('getCode extracts a classic closure body', function () {
-    $code = reflect(function (int $x): int {
-        return $x + 1;
-    })->getCode();
-
-    expect($code)->toContain('function (int $x): int')
-        ->and($code)->toContain('return $x + 1;');
-});
-
-test('getCode keeps the static keyword for static closures', function () {
-    expect(reflect(static function (): void {
-    })->getCode())
-        ->toStartWith('static function');
-});
-
-test('getCode keeps the fn keyword for arrow functions', function () {
-    expect(reflect(fn (): string => 'arrow')->getCode())
-        ->toStartWith('fn (');
-});
-
-test('getCode replaces __FILE__ and __DIR__ with literals', function () {
-    $code = reflect(function (): array {
-        return [__FILE__, __DIR__];
-    })->getCode();
-
-    expect($code)->not->toContain('__FILE__')
-        ->and($code)->not->toContain('__DIR__')
-        ->and($code)->toContain('.php');
-});
-
-test('getCode resolves the closure magic constants to {closure} exports', function () {
-    $code = reflect(function (): array {
-        return [__FUNCTION__, __METHOD__];
-    })->getCode();
-
-    expect($code)->toContain('{closure}')
-        ->and($code)->not->toContain('__FUNCTION__')
-        ->and($code)->not->toContain('__METHOD__');
-});
-
-test('getCode resolves __CLASS__ inside a real class scope', function () {
-    $code = reflect((new RichHost())->classConstant())->getCode();
-
-    expect($code)->not->toContain('__CLASS__');
-});
-
-test('getCode resolves __NAMESPACE__ with the real namespace literal', function () {
-    $code = reflect(function (): string {
-        return __NAMESPACE__;
-    })->getCode();
-
-    // Pest prefixes compiled test namespaces with 'P\'; var_export doubles
-    // the backslashes, so compare against its own escaping.
-    $namespaceLiteral = substr(var_export('Tests\Unit\Support', true), 1, -1);
-
-    expect($code)->toContain($namespaceLiteral)
-        ->and($code)->not->toContain('__NAMESPACE__');
-});
-
-test('getCode resolves __TRAIT__ inside trait-backed closures', function () {
-    $code = reflect((new RichHost())->traitConstant())->getCode();
-
-    expect($code)->not->toContain('__TRAIT__')
-        ->and($code)->toContain('Colorable');
-});
-
-test('first-class callable methods extract only the signature and body', function () {
-    $code = reflect((new MethodHost())->answer(...))->getCode();
-
-    expect($code)->toStartWith('function')
-        ->and($code)->toContain('ANSWER');
-});
-
-test('first-class callables of global functions have no source file', function () {
-    $rc = reflect(strlen(...));
-
-    expect($rc->getName())->toBe('strlen')
-        ->and(fn () => $rc->getUseVariables())->toThrow(NativeReflectionException::class);
-});
-
-test('attributes are rendered into the extracted code', function () {
-    $code = reflect((new AttributeHost())->scalarArgs())->getCode();
-
-    expect($code)->toStartWith('#[')
-        ->and($code)->toContain('SensitiveParameter')
-        ->and($code)->toContain('Deprecated');
-});
-
-test('non-scalar attribute arguments abort code extraction', function () {
-    $rc = reflect((new AttributeHost())->nonScalarArgs());
-
-    expect(fn () => $rc->getCode())->toThrow(NativeReflectionException::class, 'non-scalar');
-});
-
-test('the constructor accepts and caches pre-extracted code', function () {
-    $rc = new ReflectionClosure(fn (): int => 5, 'fn (): int => 5');
-
-    expect($rc->getCode())->toBe('fn (): int => 5')
-        ->and($rc->getUseVariables())->toBe([]);
-});
-
-test('eval-created closures cannot be tokenized from disk', function () {
-    $closure = eval('return fn (): int => 9;');
-
-    if (! $closure instanceof Closure) {
-        throw new Exception('Eval did not produce a closure.');
+    private static function reflect(Closure $closure): ReflectionClosure
+    {
+        return new ReflectionClosure($closure);
     }
 
-    expect(fn () => reflect($closure)->getCode())
-        ->toThrow(NativeReflectionException::class, 'Cannot read');
-});
+    public function testDetectsPlainClosures(): void
+    {
+        $rc = self::reflect(function (): int {
+            return 1;
+        });
 
-test('use variables are extracted by name for classic closures', function () {
-    $alpha = 1;
-    $beta = 'two';
-    $unused = 3.0;
+        $this->assertFalse($rc->isStatic());
+        $this->assertFalse($rc->isShortClosure());
+    }
 
-    $uses = reflect(fn () => [$alpha, $beta, $unused])->getUseVariables();
+    public function testDetectsStaticClosures(): void
+    {
+        $rc = self::reflect(static function (): int {
+            return 2;
+        });
 
-    expect($uses)->toBe(['alpha' => 1, 'beta' => 'two', 'unused' => 3.0]);
-});
+        $this->assertTrue($rc->isStatic());
+        $this->assertFalse($rc->isShortClosure());
+    }
 
-test('short closures report their captured values via static variables', function () {
-    $value = 42;
+    public function testDetectsArrowFunctions(): void
+    {
+        $rc = self::reflect(fn (): int => 3);
 
-    expect(reflect(fn (): int => $value + 0)->getUseVariables())->toBe(['value' => 42]);
-});
+        $this->assertFalse($rc->isStatic());
+        $this->assertTrue($rc->isShortClosure());
+    }
 
-test('the rich fixture file exposes imported classes, functions and constants', function () {
-    $host = new RichHost();
-    $rc = new ExposedReflectionClosure($host->sink());
+    public function testDetectsStaticArrowFunctions(): void
+    {
+        $rc = self::reflect(static fn (): int => 4);
 
-    $classes = $rc->classes();
-    $functions = $rc->functions();
-    $constants = $rc->constants();
-    $structures = $rc->structures();
+        $this->assertTrue($rc->isStatic());
+        $this->assertTrue($rc->isShortClosure());
+    }
 
-    expect($classes)->toHaveKey('arrayobject')
-        ->and($classes)->toHaveKey('dt')
-        ->and($functions)->toHaveKeys(['ak', 'count_all'])
-        ->and($functions['strlen'])->toBe('\\strlen')
-        ->and($constants)->toHaveKey('EOL')
-        ->and($constants['EOL'])->toBe('\\PHP_EOL');
+    public function testBoundClosureRequiresBindingButNotScope(): void
+    {
+        $rc = self::reflect((new MethodHost())->boundThis());
 
-    $types = array_column($structures, 'type');
-    expect($types)->toContain('interface')
-        ->and($types)->toContain('trait')
-        ->and($types)->toContain('class')
-        ->and($types)->toContain('enum')
-        ->and(count($structures))->toBe(4);
-});
+        $this->assertTrue($rc->isBindingRequired());
+        $this->assertFalse($rc->isScopeRequired());
+    }
 
-test('the kitchen-sink closure keeps working after a round trip', function () {
-    $host = new RichHost();
+    public function testSelfReferencesRequireScopeClass(): void
+    {
+        $rc = self::reflect((new MethodHost())->selfConstant());
 
-    $restored = unserialize(serialize(new \Omega\SerializableClosure\SerializableClosure(
-        $host->sink()
-    )));
+        $this->assertTrue($rc->isScopeRequired());
+        $this->assertFalse($rc->isBindingRequired());
+    }
 
-    // @phpstan-ignore-next-line callable.nonCallable
-    expect($restored())->toContain('|N|');
-});
+    public function testParentReferencesRequireScopeClass(): void
+    {
+        $rc = self::reflect((new MethodHostChild())->parentConstant());
 
+        $this->assertTrue($rc->isScopeRequired());
+    }
+
+    public function testGetCodeExtractsClassicClosureBody(): void
+    {
+        $code = self::reflect(function (int $x): int {
+            return $x + 1;
+        })->getCode();
+
+        $this->assertStringContainsString('function (int $x): int', $code);
+        $this->assertStringContainsString('return $x + 1;', $code);
+    }
+
+    public function testGetCodeKeepsStaticKeyword(): void
+    {
+        $code = self::reflect(static function (): void {
+        })->getCode();
+
+        $this->assertStringStartsWith('static function', $code);
+    }
+
+    public function testGetCodeKeepsFnKeyword(): void
+    {
+        $code = self::reflect(fn (): string => 'arrow')->getCode();
+
+        $this->assertStringStartsWith('fn (', $code);
+    }
+
+    public function testGetCodeReplacesFileAndDir(): void
+    {
+        $code = self::reflect(function (): array {
+            return [__FILE__, __DIR__];
+        })->getCode();
+
+        $this->assertStringNotContainsString('__FILE__', $code);
+        $this->assertStringNotContainsString('__DIR__', $code);
+        $this->assertStringContainsString('.php', $code);
+    }
+
+    public function testGetCodeResolvesClosureMagicConstants(): void
+    {
+        $code = self::reflect(function (): array {
+            return [__FUNCTION__, __METHOD__];
+        })->getCode();
+
+        $this->assertStringContainsString('{closure}', $code);
+        $this->assertStringNotContainsString('__FUNCTION__', $code);
+        $this->assertStringNotContainsString('__METHOD__', $code);
+    }
+
+    public function testGetCodeResolvesClassConstant(): void
+    {
+        $code = self::reflect((new RichHost())->classConstant())->getCode();
+
+        $this->assertStringNotContainsString('__CLASS__', $code);
+    }
+
+    public function testGetCodeResolvesNamespace(): void
+    {
+        $code = self::reflect(function (): string {
+            return __NAMESPACE__;
+        })->getCode();
+
+        // The test file declares the Tests\Unit\Support namespace; var_export
+        // doubles the backslashes, so compare against its own escaping.
+        $namespaceLiteral = substr((string) var_export('Tests\Unit\Support', true), 1, -1);
+
+        $this->assertStringContainsString($namespaceLiteral, $code);
+        $this->assertStringNotContainsString('__NAMESPACE__', $code);
+    }
+
+    public function testGetCodeResolvesTrait(): void
+    {
+        $code = self::reflect((new RichHost())->traitConstant())->getCode();
+
+        $this->assertStringNotContainsString('__TRAIT__', $code);
+        $this->assertStringContainsString('Colorable', $code);
+    }
+
+    public function testFirstClassCallableMethods(): void
+    {
+        $code = self::reflect((new MethodHost())->answer(...))->getCode();
+
+        $this->assertStringStartsWith('function', $code);
+        $this->assertStringContainsString('ANSWER', $code);
+    }
+
+    public function testFirstClassCallablesOfGlobalFunctions(): void
+    {
+        $rc = self::reflect(strlen(...));
+
+        $this->assertSame('strlen', $rc->getName());
+        $this->expectException(NativeReflectionException::class);
+        $rc->getUseVariables();
+    }
+
+    public function testAttributesAreRendered(): void
+    {
+        $code = self::reflect((new AttributeHost())->scalarArgs())->getCode();
+
+        $this->assertStringStartsWith('#[', $code);
+        $this->assertStringContainsString('SensitiveParameter', $code);
+        $this->assertStringContainsString('Deprecated', $code);
+    }
+
+    public function testNonScalarAttributeArgumentsAbort(): void
+    {
+        $rc = self::reflect((new AttributeHost())->nonScalarArgs());
+
+        $this->expectException(NativeReflectionException::class);
+        $this->expectExceptionMessage('non-scalar');
+        $rc->getCode();
+    }
+
+    public function testConstructorAcceptsPreExtractedCode(): void
+    {
+        $rc = new ReflectionClosure(fn (): int => 5, 'fn (): int => 5');
+
+        $this->assertSame('fn (): int => 5', $rc->getCode());
+        $this->assertSame([], $rc->getUseVariables());
+    }
+
+    public function testEvalCreatedClosuresCannotBeTokenized(): void
+    {
+        $closure = eval('return fn (): int => 9;');
+
+        if (! $closure instanceof Closure) {
+            throw new Exception('Eval did not produce a closure.');
+        }
+
+        $this->expectException(NativeReflectionException::class);
+        $this->expectExceptionMessage('Cannot read');
+        self::reflect($closure)->getCode();
+    }
+
+    public function testUseVariablesExtractedByName(): void
+    {
+        $alpha = 1;
+        $beta = 'two';
+        $unused = 3.0;
+
+        $uses = self::reflect(fn () => [$alpha, $beta, $unused])->getUseVariables();
+
+        $this->assertSame(['alpha' => 1, 'beta' => 'two', 'unused' => 3.0], $uses);
+    }
+
+    public function testShortClosuresReportCapturedValues(): void
+    {
+        $value = 42;
+
+        $this->assertSame(['value' => 42], self::reflect(fn (): int => $value + 0)->getUseVariables());
+    }
+
+    public function testRichFixtureExposesMetadata(): void
+    {
+        $host = new RichHost();
+        $rc = new ExposedReflectionClosure($host->sink());
+
+        $classes = $rc->classes();
+        $functions = $rc->functions();
+        $constants = $rc->constants();
+        $structures = $rc->structures();
+
+        $this->assertArrayHasKey('arrayobject', $classes);
+        $this->assertArrayHasKey('dt', $classes);
+        $this->assertArrayHasKey('ak', $functions);
+        $this->assertArrayHasKey('count_all', $functions);
+        $this->assertSame('\\strlen', $functions['strlen']);
+        $this->assertArrayHasKey('EOL', $constants);
+        $this->assertSame('\\PHP_EOL', $constants['EOL']);
+
+        $types = array_column($structures, 'type');
+        $this->assertContains('interface', $types);
+        $this->assertContains('trait', $types);
+        $this->assertContains('class', $types);
+        $this->assertContains('enum', $types);
+        $this->assertCount(4, $structures);
+    }
+
+    public function testKitchenSinkClosureRoundTrip(): void
+    {
+        $host = new RichHost();
+
+        $restored = unserialize(serialize(new SerializableClosure(
+            $host->sink()
+        )));
+
+        // @phpstan-ignore-next-line callable.nonCallable
+        $result = $restored();
+
+        $this->assertIsString($result);
+        $this->assertStringContainsString('|N|', $result);
+    }
+
+    public function testOneLineMethods(): void
+    {
+        $rc = self::reflect((new TrickyHost())->tricky());
+
+        $this->assertStringContainsString('function', $rc->getCode());
+        $this->assertStringNotContainsString('tricky', $rc->getCode());
+    }
+
+    public function testIsShortClosureMemoizesIndependently(): void
+    {
+        $rc = self::reflect(static fn (): int => 6);
+
+        $this->assertTrue($rc->isShortClosure());
+        $this->assertTrue($rc->isStatic());
+    }
+
+    public function testMultilineArrows(): void
+    {
+        $rc = self::reflect(fn (): array => [
+            1,
+            2,
+        ]);
+
+        $this->assertStringContainsString('=>', $rc->getCode());
+        $this->assertStringContainsString('2', $rc->getCode());
+    }
+
+    public function testTrackmeCommentInjectsProvenanceHeader(): void
+    {
+        $host = new RichHost();
+
+        $code = self::reflect($host->sink())->getCode();
+
+        $this->assertStringContainsString('Date      : ', $code);
+        $this->assertStringContainsString('Timestamp : ', $code);
+    }
+
+    public function testSelfPropSetsScopeRequired(): void
+    {
+        $rc = self::reflect(TokenizerEdgeCases::staticPropClosure());
+
+        $this->assertTrue($rc->isScopeRequired());
+        $this->assertStringContainsString('self::$counter', $rc->getCode());
+    }
+
+    public function testSelfClassSetsScopeRequired(): void
+    {
+        $rc = self::reflect((new TokenizerEdgeCases())->selfClassClosure());
+
+        $this->assertStringContainsString('self::class', $rc->getCode());
+        $this->assertTrue($rc->isScopeRequired());
+    }
+
+    public function testUseClauseExtractsCapturedVariables(): void
+    {
+        $rc = self::reflect((new TokenizerEdgeCases())->useClause(10));
+
+        $this->assertArrayHasKey('a', $rc->getUseVariables());
+        $this->assertArrayHasKey('b', $rc->getUseVariables());
+        $this->assertStringContainsString('use ($a, $b)', $rc->getCode());
+    }
+
+    public function testArrowWithSpreadOperator(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->arrowWithSpread())->getCode();
+
+        $this->assertStringStartsWith('fn', $code);
+        $this->assertStringContainsString('...', $code);
+    }
+
+    public function testStaticArrowWithQualifiedReturnType(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->staticArrowQualified())->getCode();
+
+        $this->assertStringStartsWith('static fn', $code);
+        $this->assertStringContainsString('Closure\\Subspace\\QF', $code);
+    }
+
+    public function testAnonymousClassExtendingNamedClass(): void
+    {
+        $rc = self::reflect((new TokenizerEdgeCases())->anonymousClassExtends());
+        $code = $rc->getCode();
+
+        $this->assertStringContainsString('new class extends', $code);
+        $this->assertStringContainsString('greet', $code);
+    }
+
+    public function testNewSelfResolvesScopeClass(): void
+    {
+        $rc = self::reflect((new TokenizerEdgeCases())->newSelfParent());
+
+        $this->assertStringContainsString('new self()', $rc->getCode());
+        $this->assertTrue($rc->isScopeRequired());
+    }
+
+    public function testStaticClassInStaticMethodClosure(): void
+    {
+        $rc = self::reflect(TokenizerEdgeCases::staticSelf());
+
+        $this->assertStringContainsString('static::class', $rc->getCode());
+    }
+
+    public function testChainedMethodCalls(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->chainedCalls())->getCode();
+
+        $this->assertStringContainsString('strtolower', $code);
+        $this->assertStringContainsString('trim', $code);
+    }
+
+    public function testInstanceofCheck(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->instanceofCheck())->getCode();
+
+        $this->assertStringContainsString('instanceof', $code);
+    }
+
+    public function testNamespaceQualifiedFunctionCall(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->namespaceQualifiedCall())->getCode();
+
+        $this->assertStringContainsString('Tests\\', $code);
+    }
+
+    public function testQualifiedNamesPreserved(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->qualifiedNames())->getCode();
+
+        $this->assertStringContainsString('Closure\\Subspace\\QF', $code);
+    }
+
+    public function testGroupedImportsParsed(): void
+    {
+        $host = new GroupHost();
+        $rc = new ExposedReflectionClosure($host->sink());
+
+        $classes = $rc->classes();
+        $functions = $rc->functions();
+        $constants = $rc->constants();
+        $structures = $rc->structures();
+
+        $expectedClasses = ['arrayobject', 'userdefinedfixture', 'colorable', 'wearable', 'parentfixture', 'ah', 'mh'];
+        foreach ($expectedClasses as $expectedClass) {
+            $this->assertArrayHasKey($expectedClass, $classes);
+        }
+
+        foreach (['ak', 'cnt', 'slen', 'av', 'tnf', 'sl'] as $function) {
+            $this->assertArrayHasKey($function, $functions);
+        }
+
+        foreach (['EOL', 'INTSIZE', 'FLOATDIG', 'PHPVER', 'MAJVER'] as $constant) {
+            $this->assertArrayHasKey($constant, $constants);
+        }
+
+        $this->assertGreaterThanOrEqual(4, count($structures));
+    }
+
+    public function testGroupedFunctionAndConstantImports(): void
+    {
+        $host = new GroupHost();
+        $rc = new ExposedReflectionClosure($host->sink());
+
+        $functions = $rc->functions();
+        $constants = $rc->constants();
+
+        $this->assertSame('\\Tests\\Fixtures\\tokenizerNamedFunction', $functions['tnf']);
+        $this->assertSame('\\strtolower', $functions['sl']);
+        $this->assertSame('\\PHP_VERSION', $constants['PHPVER']);
+        $this->assertSame('\\PHP_MAJOR_VERSION', $constants['MAJVER']);
+    }
+
+    public function testFileLevelNewAndInvokePaths(): void
+    {
+        $host = new GroupHost();
+        $rc = new ExposedReflectionClosure($host->sink());
+
+        $structures = $rc->structures();
+        $types = array_column($structures, 'type');
+
+        $this->assertContains('class', $types);
+        $this->assertContains('interface', $types);
+        $this->assertContains('trait', $types);
+        $this->assertContains('enum', $types);
+    }
+
+    public function testNewVariableFollowedByMethodCall(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->anonymousClassExtends())->getCode();
+
+        $this->assertStringContainsString('new class extends', $code);
+    }
+
+    public function testClosureBodyWithUseKeyword(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->useClause(5))->getCode();
+
+        $this->assertStringContainsString('use ($a, $b)', $code);
+    }
+
+    public function testNsSeparatorInIdStart(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->namespaceQualifiedCall())->getCode();
+
+        $this->assertStringContainsString('\\Tests\\', $code);
+    }
+
+    public function testIsBindingRequiredDetectsThisUsage(): void
+    {
+        $rc = self::reflect((new TokenizerEdgeCases())->anonymousClassExtends());
+
+        $this->assertFalse($rc->isBindingRequired());
+    }
+
+    public function testIsStaticReturnsCachedValue(): void
+    {
+        $rc = self::reflect(TokenizerEdgeCases::staticPropClosure());
+
+        $this->assertFalse($rc->isStatic());
+        $this->assertFalse($rc->isShortClosure());
+    }
+
+    public function testStaticArrowIsStaticAndShort(): void
+    {
+        $rc = self::reflect(TokenizerEdgeCases::staticArrowQualified());
+
+        $this->assertTrue($rc->isStatic());
+        $this->assertTrue($rc->isShortClosure());
+    }
+
+    public function testStaticKeywordResetsToStart(): void
+    {
+        $rc = self::reflect(TokenizerEdgeCases::staticPropClosure());
+
+        $this->assertStringStartsWith('function', $rc->getCode());
+    }
+
+    public function testNamedFunctionStateResets(): void
+    {
+        $host = new RichHost();
+        $rc = new ExposedReflectionClosure($host->sink());
+
+        $classes = $rc->classes();
+        $functions = $rc->functions();
+
+        $this->assertNotEmpty($classes);
+        $this->assertNotEmpty($functions);
+    }
+
+    public function testInvokeStateSkipsWhitespace(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->chainedCalls())->getCode();
+
+        $this->assertStringContainsString('strtolower', $code);
+    }
+
+    public function testShortClosureWithDoubleArrow(): void
+    {
+        $code = self::reflect(fn (int $a): int => $a + 1)->getCode();
+
+        $this->assertStringStartsWith('fn', $code);
+        $this->assertStringContainsString('=>', $code);
+    }
+
+    public function testReturnTypeWithColon(): void
+    {
+        $code = self::reflect(function (): string {
+            return 'x';
+        })->getCode();
+
+        $this->assertStringContainsString(': string', $code);
+    }
+
+    public function testNewStateSkipsWhitespace(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->anonymousClassExtends())->getCode();
+
+        $this->assertStringContainsString('new class extends', $code);
+    }
+
+    public function testBeforeStructureStateCapturesClassName(): void
+    {
+        $host = new GroupHost();
+        $rc = new ExposedReflectionClosure($host->sink());
+
+        $structures = $rc->structures();
+        $names = array_column($structures, 'name');
+
+        $this->assertContains('GroupHost', $names);
+        $this->assertContains('GroupInterface', $names);
+        $this->assertContains('GroupTrait', $names);
+        $this->assertContains('GroupSuit', $names);
+    }
+
+    public function testStructureStateTracksEndLine(): void
+    {
+        $host = new GroupHost();
+        $rc = new ExposedReflectionClosure($host->sink());
+
+        $structures = $rc->structures();
+
+        foreach ($structures as $struct) {
+            $this->assertGreaterThanOrEqual($struct['start'], $struct['end']);
+        }
+    }
+
+    public function testUseGroupCommaSeparatedNames(): void
+    {
+        $host = new GroupHost();
+        $rc = new ExposedReflectionClosure($host->sink());
+
+        $classes = $rc->classes();
+
+        $this->assertArrayHasKey('arrayobject', $classes);
+        $this->assertArrayHasKey('userdefinedfixture', $classes);
+        $this->assertArrayHasKey('colorable', $classes);
+    }
+
+    public function testUseGroupClosingBrace(): void
+    {
+        $host = new GroupHost();
+        $rc = new ExposedReflectionClosure($host->sink());
+
+        $functions = $rc->functions();
+
+        $this->assertArrayHasKey('ak', $functions);
+        $this->assertArrayHasKey('cnt', $functions);
+        $this->assertArrayHasKey('slen', $functions);
+    }
+
+    public function testAliasStateCapturesAliasedName(): void
+    {
+        $host = new GroupHost();
+        $rc = new ExposedReflectionClosure($host->sink());
+
+        $classes = $rc->classes();
+
+        $this->assertArrayHasKey('ah', $classes);
+        $this->assertArrayHasKey('mh', $classes);
+        $this->assertArrayHasKey('dt', $classes);
+    }
+
+    public function testUseGroupWithNameQualified(): void
+    {
+        $host = new GroupHost();
+        $rc = new ExposedReflectionClosure($host->sink());
+
+        $classes = $rc->classes();
+
+        $this->assertArrayHasKey('arrayobject', $classes);
+    }
+
+    public function testUseStatementWithLeadingBackslash(): void
+    {
+        $host = new RichHost();
+        $rc = new ExposedReflectionClosure($host->sink());
+
+        $classes = $rc->classes();
+
+        $this->assertArrayHasKey('arrayobject', $classes);
+        $this->assertStringStartsWith('\\', $classes['arrayobject']);
+    }
+
+    public function testNewStateWithDefaultToken(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->newSelfParent())->getCode();
+
+        $this->assertStringContainsString('new self()', $code);
+    }
+
+    public function testIdNameWithColon(): void
+    {
+        $code = self::reflect(function (): string {
+            return 'x';
+        })->getCode();
+
+        $this->assertStringContainsString(':', $code);
+    }
+
+    public function testIdNameDefaultResolvesConstants(): void
+    {
+        $code = self::reflect(function (): mixed {
+            return \PHP_INT_SIZE;
+        })->getCode();
+
+        $this->assertStringContainsString('PHP_INT_SIZE', $code);
+    }
+
+    public function testIdStartVariableAfterNew(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->newSelfParent())->getCode();
+
+        $this->assertStringContainsString('new self()', $code);
+    }
+
+    public function testClosureWithThisUsageSetsIsBindingRequired(): void
+    {
+        $rc = self::reflect((new TokenizerEdgeCases())->anonymousClassExtends());
+
+        $this->assertFalse($rc->isBindingRequired());
+    }
+
+    public function testRichFixtureClosureHasNoUncapturedMagicConstants(): void
+    {
+        $host = new RichHost();
+        $code = self::reflect($host->sink())->getCode();
+
+        $this->assertStringNotContainsString('__CLASS__', $code);
+        $this->assertStringNotContainsString('__TRAIT__', $code);
+        $this->assertStringNotContainsString('__FUNCTION__', $code);
+        $this->assertStringNotContainsString('__METHOD__', $code);
+    }
+
+    public function testShortClosureEndingWithSemicolon(): void
+    {
+        $code = self::reflect(fn (): int => 42)->getCode();
+
+        $this->assertStringContainsString('42', $code);
+    }
+
+    public function testShortClosureEndingWithClosingParen(): void
+    {
+        $code = self::reflect(fn (int $x): int => $x)->getCode();
+
+        $this->assertStringContainsString('$x', $code);
+    }
+
+    public function testShortClosureEndingWithComma(): void
+    {
+        $code = self::reflect(fn (): array => [1, 2])->getCode();
+
+        $this->assertStringContainsString('[1, 2]', $code);
+    }
+
+    public function testNameQualifiedTokenInBody(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->nameQualifiedInBody())->getCode();
+
+        $this->assertStringContainsString('Colorable', $code);
+    }
+
+    public function testAnonymousClassWithUseTrait(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->anonymousClassWithTrait())->getCode();
+
+        $this->assertStringContainsString('new class', $code);
+        $this->assertStringContainsString('use', $code);
+        $this->assertStringContainsString('Colorable', $code);
+    }
+
+    public function testImportedFunctionCall(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->importedFunctionCall())->getCode();
+
+        $this->assertStringContainsString('tokenizerArraySort', $code);
+    }
+
+    public function testSameLineNamedFunctionResetsHunt(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->namedFunctionSameLine())->getCode();
+
+        $this->assertStringContainsString('function ()', $code);
+        $this->assertStringNotContainsString('tokenizerEdgeProbeA1', $code);
+    }
+
+    public function testSameLineNamedFunctionFollowedByArrow(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->namedFunctionBeforeArrow())->getCode();
+
+        $this->assertStringContainsString('fn () => 3', $code);
+        $this->assertStringNotContainsString('tokenizerEdgeProbeB2', $code);
+    }
+
+    public function testStaticQualifiedCallResetsHunt(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->staticQualifiedReset())->getCode();
+
+        $this->assertStringContainsString('function ()', $code);
+        $this->assertStringContainsString('return 4;', $code);
+    }
+
+    public function testPlainBracedClosure(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->plainBracedClosure())->getCode();
+
+        $this->assertStringContainsString('{', $code);
+        $this->assertStringContainsString('return 5;', $code);
+    }
+
+    public function testRelativeQualifiedNameInBody(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->relativeQualifiedNameInBody())->getCode();
+
+        $this->assertStringContainsString('\Tests\Fixtures\Grouped\GroupInterface', $code);
+    }
+
+    public function testObjectOperatorAcrossLines(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->chainedAcrossLines())->getCode();
+
+        $this->assertStringContainsString('$this', $code);
+        $this->assertStringContainsString('describe', $code);
+    }
+
+    public function testOperatorAtEndOfLine(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->chainedWithOperatorEOL())->getCode();
+
+        $this->assertStringContainsString('describe', $code);
+    }
+
+    public function testBracedStringAccessorAfterOperator(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->braceAccessorAfterOperator())->getCode();
+
+        $this->assertStringContainsString("{'k'}", $code);
+    }
+
+    public function testNewWithVariableClassName(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->newVariableClass())->getCode();
+
+        $this->assertStringContainsString('new $cls()', $code);
+    }
+
+    public function testNamedArgumentColons(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->namedArgumentsCall())->getCode();
+
+        $this->assertStringContainsString("strlen(string: 'abc')", $code);
+    }
+
+    public function testIsStaticMemoizesVerdict(): void
+    {
+        $rc = self::reflect((new TokenizerEdgeCases())->plainBracedClosure());
+
+        $this->assertFalse($rc->isStatic());
+        $this->assertFalse($rc->isStatic());
+
+        $static = self::reflect(static fn (): int => 1);
+
+        $this->assertTrue($static->isStatic());
+        $this->assertTrue($static->isStatic());
+    }
+
+    public function testIsShortClosureStripsStaticPrefix(): void
+    {
+        $rc = self::reflect(static fn (): int => 2);
+
+        $this->assertTrue($rc->isShortClosure());
+        $this->assertTrue($rc->isShortClosure());
+    }
+
+    public function testIsStaticAndIsShortClosureBothCallOrders(): void
+    {
+        $shortFirst = self::reflect(static function (): int {
+            return 8;
+        });
+
+        $this->assertFalse($shortFirst->isShortClosure());
+        $this->assertTrue($shortFirst->isStatic());
+
+        $staticFirst = self::reflect(static function (): int {
+            return 9;
+        });
+
+        $this->assertTrue($staticFirst->isStatic());
+        $this->assertFalse($staticFirst->isShortClosure());
+    }
+
+    public function testIsStaticAndIsShortClosurePropagateMissingSource(): void
+    {
+        $rc = new ExposedReflectionClosure(strlen(...));
+
+        $this->assertThrows(NativeReflectionException::class, fn () => $rc->isStatic());
+        $this->assertThrows(
+            NativeReflectionException::class,
+            fn (): bool => (new ExposedReflectionClosure(strlen(...)))->isShortClosure()
+        );
+    }
+
+    public function testNamedFunctionFollowedByStaticClosure(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->namedFunctionBeforeStatic())->getCode();
+
+        $this->assertStringContainsString('static function ()', $code);
+        $this->assertStringNotContainsString('tokenizerEdgeProbeC4', $code);
+    }
+
+    public function testMagicConstantsInBodyResolve(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->magicConstantsInBody())->getCode();
+
+        $this->assertStringContainsString("'Tests\\\\Fixtures\\\\TokenizerEdgeCases'", $code);
+        $this->assertStringContainsString('{closure}', $code);
+    }
+
+    public function testMagicConstantsInsideAnonymousClass(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->magicConstantsInsideStructure())->getCode();
+
+        $this->assertStringContainsString('__CLASS__', $code);
+        $this->assertStringContainsString('__METHOD__', $code);
+    }
+
+    public function testTrackmeCommentRewritesToTimestampedBlock(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->trackmeComment())->getCode();
+
+        $this->assertStringContainsString('/**', $code);
+        $this->assertStringContainsString('* Date', $code);
+    }
+
+    public function testUseClausesCaptureByValueAndReference(): void
+    {
+        $byValue = self::reflect((new TokenizerEdgeCases())->useByValue())->getUseVariables();
+        $byRef   = self::reflect((new TokenizerEdgeCases())->useByReference())->getUseVariables();
+
+        $this->assertSame(['v'], array_keys($byValue));
+        $this->assertSame(['v'], array_keys($byRef));
+    }
+
+    public function testAnonymousClassAncestry(): void
+    {
+        $code = self::reflect((new TokenizerEdgeCases())->anonymousRelativeAncestry())->getCode();
+
+        $this->assertStringContainsString('extends \Tests\Fixtures\Suit', $code);
+        $this->assertStringContainsString('implements \Tests\Fixtures\Grouped\GroupInterface', $code);
+    }
+
+    public function testNamespacedFunctionCallsResolve(): void
+    {
+        $code = self::reflect((new LazyFunctionsProbe())->callsNamespacedFunction())->getCode();
+
+        $this->assertStringContainsString('\Tests\Fixtures\tokenizerNamedFunction', $code);
+    }
+
+    public function testParenthesizedNewTriggersLazyClasses(): void
+    {
+        $code = self::reflect((new LazyClassProbe())->instantiatesImportedClass())->getCode();
+
+        $this->assertStringContainsString('new \Tests\Fixtures\Suit', $code);
+    }
+
+    public function testImportedClassesResolveToFqcn(): void
+    {
+        $code = self::reflect((new ClassResolutionProbe())->resolvesImportedClasses())->getCode();
+
+        $this->assertStringContainsString('new \Tests\Fixtures\Suit', $code);
+        $this->assertStringContainsString('\Tests\Fixtures\Suit::class', $code);
+        $this->assertStringContainsString('new self()', $code);
+        $this->assertStringContainsString('SOME_UNDEFINED_PROBE', $code);
+    }
+
+    public function testTraitResolvesThroughStructuresCache(): void
+    {
+        $consumer = new class {
+            use \Tests\Fixtures\TraitProbe;
+        };
+
+        $code = self::reflect($consumer->traitConstClosure())->getCode();
+
+        $this->assertStringContainsString("'TraitProbe'", $code);
+    }
+
+    public function testFileLevelScanCoversGroupedImports(): void
+    {
+        $probe = new FetchScanProbe();
+        $rc    = new ExposedReflectionClosure($probe->probe());
+
+        // Leading-backslash imports (class, function or const) collapse into a
+        // single T_NAME_FULLY_QUALIFIED token that the scanner ignores, leaving
+        // a bare "\" prefix behind; grouped unqualified imports resolve fully.
+        $this->assertSame([
+            's2',
+            'wearable',
+            'gi3',
+            'arrayiterator',
+            'splstack',
+        ], array_keys($rc->classes()));
+        $this->assertSame('\Tests\Fixtures\Grouped\GroupInterface', $rc->classes()['gi3']);
+        $this->assertSame('\Tests\Fixtures\Suit', $rc->classes()['s2']);
+        $this->assertSame([
+            'cnt2' => '\\',
+            'tas'  => '\Tests\Fixtures\tokenizerArraySort',
+        ], $rc->functions());
+        $this->assertSame([
+            'EOL2' => '\\',
+            'PC2'  => '\ProbeConsts\PROBE_CONST',
+        ], $rc->constants());
+    }
+
+    public function testClosuresFromGlobalNamespace(): void
+    {
+        require_once __DIR__ . '/../../Fixtures/GlobalProbe.php';
+
+        $code = self::reflect((new \GlobalProbe())->probe())->getCode();
+
+        $this->assertStringContainsString('static function', $code);
+        $this->assertStringContainsString('return 1', $code);
+    }
+
+    public function testClosuresWithoutSourceCodeRejected(): void
+    {
+        $rc = new ExposedReflectionClosure(strlen(...));
+
+        // getCode() rejects first; the cache accessors share getHashedFileName()
+        // and would reject through its own guard.
+        $this->assertThrows(NativeReflectionException::class, fn () => $rc->getCode());
+        $this->assertThrows(NativeReflectionException::class, fn () => $rc->functions());
+    }
+}
+
+// phpcs:ignore PSR1.Classes.ClassDeclaration.MultipleClasses
 final class TrickyHost
 {
     public static int $counter = 0;
@@ -271,625 +1023,3 @@ final class TrickyHost
         };
     }
 }
-
-test('one-line methods exercise the modifier, named-function and nesting paths', function () {
-    $rc = reflect((new TrickyHost())->tricky());
-
-    expect($rc->getCode())->toContain('function')
-        ->and($rc->getCode())->not->toContain('tricky');
-});
-
-test('isShortClosure memoizes independently from isStatic', function () {
-    $rc = reflect(static fn (): int => 6);
-
-    expect($rc->isShortClosure())->toBeTrue()
-        ->and($rc->isStatic())->toBeTrue();
-});
-
-test('multiline arrows cross comma and bracket boundaries', function () {
-    $rc = reflect(fn (): array => [
-        1,
-        2,
-    ]);
-
-    expect($rc->getCode())->toContain('=>')
-        ->and($rc->getCode())->toContain('2');
-});
-
-test('the trackme comment injects the provenance header', function () {
-    $host = new \Tests\Fixtures\Rich\RichHost();
-
-    $code = reflect($host->sink())->getCode();
-
-    expect($code)->toContain('Date      : ')
-        ->and($code)->toContain('Timestamp : ');
-});
-
-test('self::$prop sets scope required', function () {
-    $rc = reflect(TokenizerEdgeCases::staticPropClosure());
-
-    expect($rc->isScopeRequired())->toBeTrue()
-        ->and($rc->getCode())->toContain('self::$counter');
-});
-
-test('self::class sets scope required', function () {
-    $rc = reflect((new TokenizerEdgeCases())->selfClassClosure());
-
-    expect($rc->getCode())->toContain('self::class')
-        ->and($rc->isScopeRequired())->toBeTrue();
-});
-
-test('use clause extracts captured variables', function () {
-    $rc = reflect((new TokenizerEdgeCases())->useClause(10));
-
-    expect($rc->getUseVariables())->toHaveKeys(['a', 'b'])
-        ->and($rc->getCode())->toContain('use ($a, $b)');
-});
-
-test('arrow function with spread operator', function () {
-    $code = reflect((new TokenizerEdgeCases())->arrowWithSpread())->getCode();
-
-    expect($code)->toStartWith('fn')
-        ->and($code)->toContain('...');
-});
-
-test('static arrow with qualified return type', function () {
-    $code = reflect((new TokenizerEdgeCases())->staticArrowQualified())->getCode();
-
-    expect($code)->toStartWith('static fn')
-        ->and($code)->toContain('Closure\\Subspace\\QF');
-});
-
-test('anonymous class extending a named class', function () {
-    $rc = reflect((new TokenizerEdgeCases())->anonymousClassExtends());
-    $code = $rc->getCode();
-
-    expect($code)->toContain('new class extends')
-        ->and($code)->toContain('greet');
-});
-
-test('new self() resolves the scope class', function () {
-    $rc = reflect((new TokenizerEdgeCases())->newSelfParent());
-
-    expect($rc->getCode())->toContain('new self()')
-        ->and($rc->isScopeRequired())->toBeTrue();
-});
-
-test('static::class in a static method closure', function () {
-    $rc = reflect(TokenizerEdgeCases::staticSelf());
-
-    expect($rc->getCode())->toContain('static::class');
-});
-
-test('chained method calls exercise ignore_next state', function () {
-    $code = reflect((new TokenizerEdgeCases())->chainedCalls())->getCode();
-
-    expect($code)->toContain('strtolower')
-        ->and($code)->toContain('trim');
-});
-
-test('instanceof check exercises the instanceof context', function () {
-    $code = reflect((new TokenizerEdgeCases())->instanceofCheck())->getCode();
-
-    expect($code)->toContain('instanceof');
-});
-
-test('namespace-qualified function call resolves correctly', function () {
-    $code = reflect((new TokenizerEdgeCases())->namespaceQualifiedCall())->getCode();
-
-    expect($code)->toContain('Tests\\');
-});
-
-test('qualified names in params and body are preserved', function () {
-    $code = reflect((new TokenizerEdgeCases())->qualifiedNames())->getCode();
-
-    expect($code)->toContain('Closure\\Subspace\\QF');
-});
-
-test('grouped imports are parsed by fetchItems', function () {
-    $host = new \Tests\Fixtures\Grouped\GroupHost();
-    $rc = new ExposedReflectionClosure($host->sink());
-
-    $classes = $rc->classes();
-    $functions = $rc->functions();
-    $constants = $rc->constants();
-    $structures = $rc->structures();
-
-    $expectedClasses = ['arrayobject', 'userdefinedfixture', 'colorable', 'wearable', 'parentfixture', 'ah', 'mh'];
-    expect($classes)->toHaveKeys($expectedClasses)
-        ->and($functions)->toHaveKeys(['ak', 'cnt', 'slen', 'av', 'tnf', 'sl'])
-        ->and($constants)->toHaveKeys(['EOL', 'INTSIZE', 'FLOATDIG', 'PHPVER', 'MAJVER'])
-        ->and(count($structures))->toBeGreaterThanOrEqual(4);
-});
-
-test('grouped function and constant imports resolve correctly', function () {
-    $host = new \Tests\Fixtures\Grouped\GroupHost();
-    $rc = new ExposedReflectionClosure($host->sink());
-
-    $functions = $rc->functions();
-    $constants = $rc->constants();
-
-    expect($functions['tnf'])->toBe('\\Tests\\Fixtures\\tokenizerNamedFunction')
-        ->and($functions['sl'])->toBe('\\strtolower')
-        ->and($constants['PHPVER'])->toBe('\\PHP_VERSION')
-        ->and($constants['MAJVER'])->toBe('\\PHP_MAJOR_VERSION');
-});
-
-test('file-level new and invoke paths are exercised', function () {
-    $host = new \Tests\Fixtures\Grouped\GroupHost();
-    $rc = new ExposedReflectionClosure($host->sink());
-
-    $structures = $rc->structures();
-    $types = array_column($structures, 'type');
-
-    expect($types)->toContain('class')
-        ->and($types)->toContain('interface')
-        ->and($types)->toContain('trait')
-        ->and($types)->toContain('enum');
-});
-
-test('new variable followed by method call triggers id_start variable path', function () {
-    $code = reflect((new TokenizerEdgeCases())->anonymousClassExtends())->getCode();
-
-    expect($code)->toContain('new class extends');
-});
-
-test('closure body with use keyword triggers use context', function () {
-    $code = reflect((new TokenizerEdgeCases())->useClause(5))->getCode();
-
-    expect($code)->toContain('use ($a, $b)');
-});
-
-test('T_NS_SEPARATOR in id_start is handled for leading backslash', function () {
-    $code = reflect((new TokenizerEdgeCases())->namespaceQualifiedCall())->getCode();
-
-    expect($code)->toContain('\\Tests\\');
-});
-
-test('isBindingRequired detects $this usage', function () {
-    $rc = reflect((new TokenizerEdgeCases())->anonymousClassExtends());
-
-    expect($rc->isBindingRequired())->toBeFalse();
-});
-
-test('isStatic for static closure returns cached value', function () {
-    $rc = reflect(TokenizerEdgeCases::staticPropClosure());
-
-    expect($rc->isStatic())->toBeFalse()
-        ->and($rc->isShortClosure())->toBeFalse();
-});
-
-test('static arrow function is both static and short', function () {
-    $rc = reflect(TokenizerEdgeCases::staticArrowQualified());
-
-    expect($rc->isStatic())->toBeTrue()
-        ->and($rc->isShortClosure())->toBeTrue();
-});
-
-test('static keyword followed by non-function/non-fn resets to start', function () {
-    $rc = reflect(TokenizerEdgeCases::staticPropClosure());
-
-    expect($rc->getCode())->toStartWith('function');
-});
-
-test('named function state resets when encountering another function keyword', function () {
-    $host = new \Tests\Fixtures\Rich\RichHost();
-    $rc = new ExposedReflectionClosure($host->sink());
-
-    $classes = $rc->classes();
-    $functions = $rc->functions();
-
-    expect($classes)->not->toBeEmpty()
-        ->and($functions)->not->toBeEmpty();
-});
-
-test('invoke state skips whitespace and comments', function () {
-    $code = reflect((new TokenizerEdgeCases())->chainedCalls())->getCode();
-
-    expect($code)->toContain('strtolower');
-});
-
-test('short closure with double arrow transitions to closure state', function () {
-    $code = reflect(fn (int $a): int => $a + 1)->getCode();
-
-    expect($code)->toStartWith('fn')
-        ->and($code)->toContain('=>');
-});
-
-test('return type with colon enters return state', function () {
-    $code = reflect(function (): string {
-        return 'x';
-    })->getCode();
-
-    expect($code)->toContain(': string');
-});
-
-test('new state skips whitespace before class keyword', function () {
-    $code = reflect((new TokenizerEdgeCases())->anonymousClassExtends())->getCode();
-
-    expect($code)->toContain('new class extends');
-});
-
-test('before_structure state captures class name', function () {
-    $host = new \Tests\Fixtures\Grouped\GroupHost();
-    $rc = new ExposedReflectionClosure($host->sink());
-
-    $structures = $rc->structures();
-    $names = array_column($structures, 'name');
-
-    expect($names)->toContain('GroupHost')
-        ->and($names)->toContain('GroupInterface')
-        ->and($names)->toContain('GroupTrait')
-        ->and($names)->toContain('GroupSuit');
-});
-
-test('structure state tracks end line correctly', function () {
-    $host = new \Tests\Fixtures\Grouped\GroupHost();
-    $rc = new ExposedReflectionClosure($host->sink());
-
-    $structures = $rc->structures();
-
-    foreach ($structures as $struct) {
-        expect($struct['end'])->toBeGreaterThanOrEqual($struct['start']);
-    }
-});
-
-test('use-group with comma-separated names are all registered', function () {
-    $host = new \Tests\Fixtures\Grouped\GroupHost();
-    $rc = new ExposedReflectionClosure($host->sink());
-
-    $classes = $rc->classes();
-
-    expect($classes)->toHaveKey('arrayobject')
-        ->and($classes)->toHaveKey('userdefinedfixture')
-        ->and($classes)->toHaveKey('colorable');
-});
-
-test('use-group closing brace transitions back to use state', function () {
-    $host = new \Tests\Fixtures\Grouped\GroupHost();
-    $rc = new ExposedReflectionClosure($host->sink());
-
-    $functions = $rc->functions();
-
-    expect($functions)->toHaveKey('ak')
-        ->and($functions)->toHaveKey('cnt')
-        ->and($functions)->toHaveKey('slen');
-});
-
-test('alias state captures the aliased name', function () {
-    $host = new \Tests\Fixtures\Grouped\GroupHost();
-    $rc = new ExposedReflectionClosure($host->sink());
-
-    $classes = $rc->classes();
-
-    expect($classes)->toHaveKey('ah')
-        ->and($classes)->toHaveKey('mh')
-        ->and($classes)->toHaveKey('dt');
-});
-
-test('use-group with T_NAME_QUALIFIED in name is handled', function () {
-    $host = new \Tests\Fixtures\Grouped\GroupHost();
-    $rc = new ExposedReflectionClosure($host->sink());
-
-    $classes = $rc->classes();
-
-    expect($classes)->toHaveKey('arrayobject');
-});
-
-test('use statement with leading backslash gets prefix', function () {
-    $host = new \Tests\Fixtures\Rich\RichHost();
-    $rc = new ExposedReflectionClosure($host->sink());
-
-    $classes = $rc->classes();
-
-    expect($classes)->toHaveKey('arrayobject')
-        ->and($classes['arrayobject'])->toStartWith('\\');
-});
-
-test('new state with default token transitions to start', function () {
-    $code = reflect((new TokenizerEdgeCases())->newSelfParent())->getCode();
-
-    expect($code)->toContain('new self()');
-});
-
-test('id_name with colon in non-instanceof context appends to code', function () {
-    $code = reflect(function (): string {
-        return 'x';
-    })->getCode();
-
-    expect($code)->toContain(':');
-});
-
-test('id_name default resolves constants via getConstants', function () {
-    $code = reflect(function (): mixed {
-        return \PHP_INT_SIZE;
-    })->getCode();
-
-    expect($code)->toContain('PHP_INT_SIZE');
-});
-
-test('id_start T_VARIABLE after new sets variable and returns to lastState', function () {
-    $code = reflect((new TokenizerEdgeCases())->newSelfParent())->getCode();
-
-    expect($code)->toContain('new self()');
-});
-
-test('closure with $this usage sets isBindingRequired', function () {
-    $rc = reflect((new TokenizerEdgeCases())->anonymousClassExtends());
-
-    expect($rc->isBindingRequired())->toBeFalse();
-});
-
-test('the rich fixture closure has no uncaptured magic constants in body', function () {
-    $host = new \Tests\Fixtures\Rich\RichHost();
-    $code = reflect($host->sink())->getCode();
-
-    expect($code)->not->toContain('__CLASS__')
-        ->and($code)->not->toContain('__TRAIT__')
-        ->and($code)->not->toContain('__FUNCTION__')
-        ->and($code)->not->toContain('__METHOD__');
-});
-
-test('short closure ending with semicolon exits loop', function () {
-    $code = reflect(fn (): int => 42)->getCode();
-
-    expect($code)->toContain('42');
-});
-
-test('short closure ending with closing paren exits loop', function () {
-    $code = reflect(fn (int $x): int => $x)->getCode();
-
-    expect($code)->toContain('$x');
-});
-
-test('short closure ending with comma exits loop', function () {
-    $code = reflect(fn (): array => [1, 2])->getCode();
-
-    expect($code)->toContain('[1, 2]');
-});
-
-test('name-qualified token directly in closure body is resolved', function () {
-    $code = reflect((new TokenizerEdgeCases())->nameQualifiedInBody())->getCode();
-
-    expect($code)->toContain('Colorable');
-});
-
-test('anonymous class with use trait inside closure body is parsed', function () {
-    $code = reflect((new TokenizerEdgeCases())->anonymousClassWithTrait())->getCode();
-
-    expect($code)->toContain('new class')
-        ->and($code)->toContain('use')
-        ->and($code)->toContain('Colorable');
-});
-
-test('imported function call exercises function resolution in id_name', function () {
-    $code = reflect((new TokenizerEdgeCases())->importedFunctionCall())->getCode();
-
-    expect($code)->toContain('tokenizerArraySort');
-});
-
-test('same-line named function resets the hunt before the real closure', function () {
-    $code = reflect((new TokenizerEdgeCases())->namedFunctionSameLine())->getCode();
-
-    expect($code)->toContain('function ()')
-        ->and($code)->not->toContain('tokenizerEdgeProbeA1');
-});
-
-test('same-line named function followed by an arrow closure restarts on T_FN', function () {
-    $code = reflect((new TokenizerEdgeCases())->namedFunctionBeforeArrow())->getCode();
-
-    expect($code)->toContain('fn () => 3')
-        ->and($code)->not->toContain('tokenizerEdgeProbeB2');
-});
-
-test('static qualified call resets the hunt back to start', function () {
-    $code = reflect((new TokenizerEdgeCases())->staticQualifiedReset())->getCode();
-
-    expect($code)->toContain('function ()')
-        ->and($code)->toContain('return 4;');
-});
-
-test('plain braced closure without types or use enters via closure_args', function () {
-    $code = reflect((new TokenizerEdgeCases())->plainBracedClosure())->getCode();
-
-    expect($code)->toContain('{')
-        ->and($code)->toContain('return 5;');
-});
-
-test('relative qualified name in body is resolved through parseNameQualified', function () {
-    $code = reflect((new TokenizerEdgeCases())->relativeQualifiedNameInBody())->getCode();
-
-    expect($code)->toContain('\Tests\Fixtures\Grouped\GroupInterface');
-});
-
-test('object operator across lines consumes the whitespace', function () {
-    $code = reflect((new TokenizerEdgeCases())->chainedAcrossLines())->getCode();
-
-    expect($code)->toContain('$this')
-        ->and($code)->toContain('describe');
-});
-
-test('operator at end of line consumes the following whitespace', function () {
-    $code = reflect((new TokenizerEdgeCases())->chainedWithOperatorEOL())->getCode();
-
-    expect($code)->toContain('describe');
-});
-
-test('braced string accessor after an operator is reprocessed', function () {
-    $code = reflect((new TokenizerEdgeCases())->braceAccessorAfterOperator())->getCode();
-
-    expect($code)->toContain("{'k'}");
-});
-
-test('new with a variable class name keeps the variable verbatim', function () {
-    $code = reflect((new TokenizerEdgeCases())->newVariableClass())->getCode();
-
-    expect($code)->toContain('new $cls()');
-});
-
-test('named-argument colons survive code extraction', function () {
-    $code = reflect((new TokenizerEdgeCases())->namedArgumentsCall())->getCode();
-
-    expect($code)->toContain("strlen(string: 'abc')");
-});
-
-test('isStatic memoizes its verdict on repeated calls', function () {
-    $rc = reflect((new TokenizerEdgeCases())->plainBracedClosure());
-
-    expect($rc->isStatic())->toBeFalse()
-        ->and($rc->isStatic())->toBeFalse();
-
-    $static = reflect(static fn (): int => 1);
-
-    expect($static->isStatic())->toBeTrue()
-        ->and($static->isStatic())->toBeTrue();
-});
-
-test('isShortClosure strips the static prefix before probing', function () {
-    $rc = reflect(static fn (): int => 2);
-
-    expect($rc->isShortClosure())->toBeTrue()
-        ->and($rc->isShortClosure())->toBeTrue();
-});
-
-test('isStatic and isShortClosure reject in both call orders on a static closure', function () {
-    $shortFirst = reflect(static function (): int {
-        return 8;
-    });
-
-    expect($shortFirst->isShortClosure())->toBeFalse()
-        ->and($shortFirst->isStatic())->toBeTrue();
-
-    $staticFirst = reflect(static function (): int {
-        return 9;
-    });
-
-    expect($staticFirst->isStatic())->toBeTrue()
-        ->and($staticFirst->isShortClosure())->toBeFalse();
-});
-
-test('isStatic and isShortClosure propagate the missing-source failure', function () {
-    $rc = new ExposedReflectionClosure(strlen(...));
-
-    expect(fn () => $rc->isStatic())->toThrow(NativeReflectionException::class)
-        ->and(fn () => (new ExposedReflectionClosure(strlen(...)))->isShortClosure())
-        ->toThrow(NativeReflectionException::class);
-});
-
-test('named function followed by a static closure restarts through static', function () {
-    $code = reflect((new TokenizerEdgeCases())->namedFunctionBeforeStatic())->getCode();
-
-    expect($code)->toContain('static function ()')
-        ->and($code)->not->toContain('tokenizerEdgeProbeC4');
-});
-
-test('magic constants in body resolve against closure metadata', function () {
-    $code = reflect((new TokenizerEdgeCases())->magicConstantsInBody())->getCode();
-
-    expect($code)->toContain("'Tests\\\\Fixtures\\\\TokenizerEdgeCases'")
-        ->and($code)->toContain('{closure}');
-});
-
-test('magic constants inside an anonymous class stay verbatim', function () {
-    $code = reflect((new TokenizerEdgeCases())->magicConstantsInsideStructure())->getCode();
-
-    expect($code)->toContain('__CLASS__')
-        ->and($code)->toContain('__METHOD__');
-});
-
-test('trackme comments rewrite to a timestamped block', function () {
-    $code = reflect((new TokenizerEdgeCases())->trackmeComment())->getCode();
-
-    expect($code)->toContain('/**')
-        ->and($code)->toContain('* Date');
-});
-
-test('use clauses capture by value and by reference alike', function () {
-    $byValue = reflect((new TokenizerEdgeCases())->useByValue())->getUseVariables();
-    $byRef   = reflect((new TokenizerEdgeCases())->useByReference())->getUseVariables();
-
-    expect(array_keys($byValue))->toBe(['v'])
-        ->and(array_keys($byRef))->toBe(['v']);
-});
-
-test('anonymous class ancestry resolves relative names', function () {
-    $code = reflect((new TokenizerEdgeCases())->anonymousRelativeAncestry())->getCode();
-
-    expect($code)->toContain('extends \Tests\Fixtures\Suit')
-        ->and($code)->toContain('implements \Tests\Fixtures\Grouped\GroupInterface');
-});
-
-test('namespaced function calls resolve through the lazy functions cache', function () {
-    $code = reflect((new LazyFunctionsProbe())->callsNamespacedFunction())->getCode();
-
-    expect($code)->toContain('\Tests\Fixtures\tokenizerNamedFunction');
-});
-
-test('parenthesized new triggers the lazy classes cache on that path', function () {
-    $code = reflect((new LazyClassProbe())->instantiatesImportedClass())->getCode();
-
-    expect($code)->toContain('new \Tests\Fixtures\Suit');
-});
-
-test('imported classes resolve to fully qualified names through the classes cache', function () {
-    $code = reflect((new ClassResolutionProbe())->resolvesImportedClasses())->getCode();
-
-    expect($code)->toContain('new \Tests\Fixtures\Suit')
-        ->and($code)->toContain('\Tests\Fixtures\Suit::class')
-        ->and($code)->toContain('new self()')
-        ->and($code)->toContain('SOME_UNDEFINED_PROBE');
-});
-
-test('__TRAIT__ resolves through the structures cache', function () {
-    $consumer = new class {
-        use \Tests\Fixtures\TraitProbe;
-    };
-
-    $code = reflect($consumer->traitConstClosure())->getCode();
-
-    expect($code)->toContain("'TraitProbe'");
-});
-
-test('file-level scan covers grouped and leading-backslash imports', function () {
-    $probe = new \Tests\Fixtures\FetchScanProbe();
-    $rc    = new ExposedReflectionClosure($probe->probe());
-
-    // Leading-backslash imports (class, function or const) collapse into a
-    // single T_NAME_FULLY_QUALIFIED token that the scanner ignores, leaving
-    // a bare "\" prefix behind; grouped unqualified imports resolve fully.
-    expect(array_keys($rc->classes()))->toBe([
-        's2',
-        'wearable',
-        'gi3',
-        'arrayiterator',
-        'splstack',
-    ])
-        ->and($rc->classes()['gi3'])->toBe('\Tests\Fixtures\Grouped\GroupInterface')
-        ->and($rc->classes()['s2'])->toBe('\Tests\Fixtures\Suit')
-        ->and($rc->functions())->toBe([
-            'cnt2' => '\\',
-            'tas'  => '\Tests\Fixtures\tokenizerArraySort',
-        ])
-        ->and($rc->constants())->toBe([
-            'EOL2' => '\\',
-            'PC2'  => '\ProbeConsts\PROBE_CONST',
-        ]);
-});
-
-test('closures from the global namespace resolve empty metadata', function () {
-    require_once __DIR__ . '/../../Fixtures/GlobalProbe.php';
-
-    $code = reflect((new \GlobalProbe())->probe())->getCode();
-
-    expect($code)->toContain('static function')
-        ->and($code)->toContain('return 1');
-});
-
-test('closures without source code are rejected fail-fast', function () {
-    $rc = new ExposedReflectionClosure(strlen(...));
-
-    // getCode() rejects first; the cache accessors share getHashedFileName()
-    // and would reject through its own guard.
-    expect(fn () => $rc->getCode())->toThrow(NativeReflectionException::class)
-        ->and(fn () => $rc->functions())->toThrow(NativeReflectionException::class);
-});

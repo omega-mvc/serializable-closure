@@ -13,72 +13,79 @@
 
 declare(strict_types=1);
 
+namespace Tests\Unit\Serializers;
+
 use Omega\SerializableClosure\Exception\InvalidSignatureException;
 use Omega\SerializableClosure\Exception\MissingSecretKeyException;
 use Omega\SerializableClosure\Serializers\Signed;
 use Omega\SerializableClosure\Signers\Hmac;
+use stdClass;
+use Tests\TestCase;
 
-test('serializing without a signer throws', function () {
-    Signed::$signer = null;
+final class SignedTest extends TestCase
+{
+    public function testSerializingWithoutASignerThrows(): void
+    {
+        Signed::$signer = null;
 
-    $signed = new Signed(fn (): int => 1);
+        $signed = new Signed(fn (): int => 1);
 
-    expect(fn () => $signed->__serialize())->toThrow(MissingSecretKeyException::class);
-});
+        $this->expectException(MissingSecretKeyException::class);
+        $signed->__serialize();
+    }
 
-test('serializing with a signer returns the signed envelope', function () {
-    Signed::$signer = new Hmac('secret');
+    public function testSerializingWithASignerReturnsTheSignedEnvelope(): void
+    {
+        Signed::$signer = new Hmac('secret');
 
-    $data = (new Signed(fn (): int => 1))->__serialize();
+        $data = (new Signed(fn (): int => 1))->__serialize();
 
-    expect($data)->toHaveKeys(['serializable', 'hash']);
+        $this->assertArrayHasKey('serializable', $data);
+        $this->assertArrayHasKey('hash', $data);
+    }
 
-    Signed::$signer = null;
-});
+    public function testUnserializingWithoutASignerIsRejectedFailClosed(): void
+    {
+        Signed::$signer = new Hmac('secret');
+        $signature = (new Signed(fn (): int => 1))->__serialize();
+        Signed::$signer = null;
 
-test('unserializing without a signer is rejected fail-closed', function () {
-    Signed::$signer = new Hmac('secret');
-    $signature = (new Signed(fn (): int => 1))->__serialize();
-    Signed::$signer = null;
+        $this->expectException(MissingSecretKeyException::class);
+        (new Signed(fn (): int => 0))->__unserialize($signature);
+    }
 
-    expect(fn () => (new Signed(fn (): int => 0))->__unserialize($signature))
-        ->toThrow(MissingSecretKeyException::class);
-});
+    public function testUnserializingWithAWrongSignerIsRejected(): void
+    {
+        Signed::$signer = new Hmac('right');
+        $signature = (new Signed(fn (): int => 1))->__serialize();
+        Signed::$signer = new Hmac('wrong');
 
-test('unserializing with a wrong signer is rejected', function () {
-    Signed::$signer = new Hmac('right');
-    $signature = (new Signed(fn (): int => 1))->__serialize();
-    Signed::$signer = new Hmac('wrong');
+        $this->expectException(InvalidSignatureException::class);
+        (new Signed(fn (): int => 0))->__unserialize($signature);
+    }
 
-    expect(fn () => (new Signed(fn (): int => 0))->__unserialize($signature))
-        ->toThrow(InvalidSignatureException::class);
+    public function testUnserializingAnEnvelopeWhosePayloadIsNotSerializableIsRejected(): void
+    {
+        // A validly-signed envelope whose inner payload unserializes to something
+        // that is not a SerializableInterface implementation.
+        $hmac = new Hmac('secret');
+        $forged = $hmac->sign(serialize(new stdClass()));
 
-    Signed::$signer = null;
-});
+        Signed::$signer = $hmac;
 
-test('unserializing an envelope whose payload is not serializable is rejected', function () {
-    // A validly-signed envelope whose inner payload unserializes to something
-    // that is not a SerializableInterface implementation.
-    $hmac = new Hmac('secret');
-    $forged = $hmac->sign(serialize(new stdClass()));
+        $this->expectException(InvalidSignatureException::class);
+        (new Signed(fn (): int => 0))->__unserialize($forged);
+    }
 
-    Signed::$signer = $hmac;
+    public function testUnserializingAValidEnvelopeRestoresTheClosure(): void
+    {
+        Signed::$signer = new Hmac('secret');
 
-    expect(fn () => (new Signed(fn (): int => 0))->__unserialize($forged))
-        ->toThrow(InvalidSignatureException::class);
+        $envelope = (new Signed(fn (): int => 3))->__serialize();
+        $restored = new Signed(fn (): int => 0);
+        $restored->__unserialize($envelope);
 
-    Signed::$signer = null;
-});
-
-test('unserializing a valid envelope restores the closure', function () {
-    Signed::$signer = new Hmac('secret');
-
-    $envelope = (new Signed(fn (): int => 3))->__serialize();
-    $restored = new Signed(fn (): int => 0);
-    $restored->__unserialize($envelope);
-
-    Signed::$signer = null;
-
-    expect($restored->getClosure()())->toBe(3)
-        ->and($restored())->toBe(3);
-});
+        $this->assertSame(3, $restored->getClosure()());
+        $this->assertSame(3, $restored());
+    }
+}

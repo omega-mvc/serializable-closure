@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   tests:
-    name: Pest (PHP ${{ matrix.php }})
+    name: PHPUnit (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -47,7 +47,7 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-interaction --no-progress
 
-      - name: Run Pest
+      - name: Run PHPUnit
         # --no-coverage keeps the job green: the XML declares an HTML report
         # that needs a coverage driver, which CI deliberately does not provide.
-        run: vendor/bin/pest --no-coverage
+        run: vendor/bin/phpunit --no-coverage

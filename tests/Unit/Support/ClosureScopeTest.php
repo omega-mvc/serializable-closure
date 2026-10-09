@@ -13,47 +13,58 @@
 
 declare(strict_types=1);
 
+namespace Tests\Unit\Support;
+
 use Omega\SerializableClosure\Support\ClosureScope;
+use stdClass;
+use Tests\TestCase;
 
-test('a fresh scope starts with zeroed counters', function () {
-    $scope = new ClosureScope();
+final class ClosureScopeTest extends TestCase
+{
+    public function testAFreshScopeStartsWithZeroedCounters(): void
+    {
+        $scope = new ClosureScope();
 
-    expect($scope->serializations)->toBe(0)
-        ->and($scope->toSerialize)->toBe(0);
-});
+        $this->assertSame(0, $scope->serializations);
+        $this->assertSame(0, $scope->toSerialize);
+    }
 
-test('begin and finish keep the counters balanced', function () {
-    $scope = new ClosureScope();
-    ++$scope->toSerialize;
+    public function testBeginAndFinishKeepTheCountersBalanced(): void
+    {
+        $scope = new ClosureScope();
+        ++$scope->toSerialize;
 
-    $scope->beginSerialization();
-    expect($scope->serializations)->toBe(1);
+        $scope->beginSerialization();
+        $this->assertSame(1, $scope->serializations);
 
-    expect($scope->finishSerialization())->toBeTrue()
-        ->and($scope->serializations)->toBe(0)
-        ->and($scope->toSerialize)->toBe(0);
-});
+        $this->assertTrue($scope->finishSerialization());
+        $this->assertSame(0, $scope->serializations);
+        $this->assertSame(0, $scope->toSerialize);
+    }
 
-test('finish reports false while serializations are pending', function () {
-    $scope = new ClosureScope();
-    ++$scope->toSerialize;
-    ++$scope->toSerialize;
+    public function testFinishReportsFalseWhileSerializationsArePending(): void
+    {
+        $scope = new ClosureScope();
+        ++$scope->toSerialize;
+        ++$scope->toSerialize;
 
-    $scope->beginSerialization();
-    expect($scope->finishSerialization())->toBeFalse()
-        ->and($scope->serializations)->toBe(0)
-        ->and($scope->toSerialize)->toBe(1);
-});
+        $scope->beginSerialization();
+        $this->assertFalse($scope->finishSerialization());
+        $this->assertSame(0, $scope->serializations);
+        $this->assertSame(1, $scope->toSerialize);
+    }
 
-test('the scope behaves as an object storage', function () {
-    $scope  = new ClosureScope();
-    $first  = new stdClass();
-    $second = new stdClass();
+    public function testTheScopeBehavesAsAnObjectStorage(): void
+    {
+        $scope  = new ClosureScope();
+        $first  = new stdClass();
+        $second = new stdClass();
 
-    $scope[$first] = 'a';
-    $scope[$second] = 'b';
+        $scope[$first] = 'a';
+        $scope[$second] = 'b';
 
-    expect($scope->count())->toBe(2)
-        ->and($scope[$first])->toBe('a')
-        ->and(isset($scope[$second]))->toBeTrue();
-});
+        $this->assertSame(2, $scope->count());
+        $this->assertSame('a', $scope[$first]);
+        $this->assertTrue(isset($scope[$second]));
+    }
+}

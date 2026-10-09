@@ -72,7 +72,7 @@ class ReflectionClosure extends ReflectionFunction
      * @var list<non-empty-string>
      */
     /** @var list<non-empty-string> */
-    protected const BUILTIN_TYPES = [
+    protected const array BUILTIN_TYPES = [
         'array',
         'callable',
         'string',
@@ -923,11 +923,11 @@ class ReflectionClosure extends ReflectionFunction
         $this->isBindingRequired = $isUsingThisObject;
         $this->isScopeRequired   = $isUsingScope;
 
-        $attributesCode = array_map(function ($attribute) {
+        $attributesCode = array_map(function (\ReflectionAttribute $attribute): string {
             $arguments = $attribute->getArguments();
 
             $name      = $attribute->getName();
-            $arguments = implode(', ', array_map(function ($argument, $key) {
+            $arguments = implode(', ', array_map(function (mixed $argument, int|string $key): string {
                 if (! is_scalar($argument)) {
                     throw new ReflectionException('Cannot serialize non-scalar attribute arguments.');
                 }

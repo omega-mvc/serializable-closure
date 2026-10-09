@@ -13,33 +13,43 @@
 
 declare(strict_types=1);
 
+namespace Tests\Unit;
+
+use Exception;
 use Omega\SerializableClosure\Serializers\Native;
 use Omega\SerializableClosure\UnsignedSerializableClosure;
+use Tests\TestCase;
 
-test('it invokes the wrapped closure with forwarded arguments', function () {
-    $unsigned = new UnsignedSerializableClosure(fn (int $a, int $b): int => $a * $b);
+final class UnsignedSerializableClosureTest extends TestCase
+{
+    public function testItInvokesTheWrappedClosureWithForwardedArguments(): void
+    {
+        $unsigned = new UnsignedSerializableClosure(fn (int $a, int $b): int => $a * $b);
 
-    expect($unsigned(6, 7))->toBe(42);
-});
-
-test('its payload carries only the native serializable', function () {
-    $unsigned = new UnsignedSerializableClosure(fn (): string => 'x');
-
-    $data = $unsigned->__serialize();
-
-    expect(array_keys($data))->toBe(['serializable'])
-        ->and($data['serializable'])->toBeInstanceOf(Native::class);
-});
-
-test('it survives a full serialization cycle', function () {
-    $factor = 3;
-    $payload = serialize(new UnsignedSerializableClosure(fn (int $x): int => $x * $factor));
-
-    $restored = unserialize($payload);
-
-    if (! $restored instanceof UnsignedSerializableClosure) {
-        throw new Exception('Unexpected restored type.');
+        $this->assertSame(42, $unsigned(6, 7));
     }
 
-    expect($restored(5))->toBe(15);
-});
+    public function testItsPayloadCarriesOnlyTheNativeSerializable(): void
+    {
+        $unsigned = new UnsignedSerializableClosure(fn (): string => 'x');
+
+        $data = $unsigned->__serialize();
+
+        $this->assertSame(['serializable'], array_keys($data));
+        $this->assertInstanceOf(Native::class, $data['serializable']);
+    }
+
+    public function testItSurvivesAFullSerializationCycle(): void
+    {
+        $factor = 3;
+        $payload = serialize(new UnsignedSerializableClosure(fn (int $x): int => $x * $factor));
+
+        $restored = unserialize($payload);
+
+        if (! $restored instanceof UnsignedSerializableClosure) {
+            throw new Exception('Unexpected restored type.');
+        }
+
+        $this->assertSame(15, $restored(5));
+    }
+}

@@ -15,33 +15,40 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Support;
 
-use Closure;
 use Omega\SerializableClosure\SerializableClosure;
+use Tests\TestCase;
 
-test('the kitchen-sink closure keeps working after a round trip', function () {
-    $host = new \Tests\Fixtures\Rich\RichHost();
+final class RichRoundTripTest extends TestCase
+{
+    public function testTheKitchenSinkClosureKeepsWorkingAfterARoundTrip(): void
+    {
+        $host = new \Tests\Fixtures\Rich\RichHost();
 
-    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($host->sink())));
+        $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($host->sink())));
 
-    $out = $restored();
+        $out = $restored();
 
-    expect($out)->toContain('|N|')
-        ->and($out)->toContain("'rich-constant'")
-        ->and($out)->toContain('hi')
-        ->and($out)->toContain('kind=')
-        ->and($out)->not->toContain('__LINE__');
-});
+        $this->assertIsString($out);
 
-test('bound closures with complex host properties survive the round trip', function () {
-    $host = new \Tests\Fixtures\Rich\RichHost();
+        $this->assertStringContainsString('|N|', $out);
+        $this->assertStringContainsString("'rich-constant'", $out);
+        $this->assertStringContainsString('hi', $out);
+        $this->assertStringContainsString('kind=', $out);
+        $this->assertStringNotContainsString('__LINE__', $out);
+    }
 
-    $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($host->boundWithProps())));
+    public function testBoundClosuresWithComplexHostPropertiesSurviveTheRoundTrip(): void
+    {
+        $host = new \Tests\Fixtures\Rich\RichHost();
 
-    expect($restored())->toBe([
-        'red',
-        'Tests\Fixtures\Rich\RichHost',
-        5,
-        6,
-        1,
-    ]);
-});
+        $restored = \Tests\Fixtures\RoundTrip::closure(serialize(new SerializableClosure($host->boundWithProps())));
+
+        $this->assertSame([
+            'red',
+            'Tests\Fixtures\Rich\RichHost',
+            5,
+            6,
+            1,
+        ], $restored());
+    }
+}

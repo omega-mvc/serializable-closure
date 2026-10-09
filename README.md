@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/omega-mvc/serializable-closure/tests.yml?label=Pest" alt="Pest"></a>
+    <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/omega-mvc/serializable-closure/tests.yml?label=PHPUnit" alt="PHPUnit"></a>
     <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/coding-standard.yml"><img src="https://img.shields.io/github/actions/workflow/status/omega-mvc/serializable-closure/coding-standard.yml?label=PHPCS" alt="PHPCS"></a>
     <a href="https://github.com/omega-mvc/serializable-closure/actions/workflows/static-analysis.yml"><img src="https://img.shields.io/github/actions/workflow/status/omega-mvc/serializable-closure/static-analysis.yml?label=PHPStan" alt="PHPStan"></a>
     <a href="https://packagist.org/packages/omega-mvc/serializable-closure"><img src="https://img.shields.io/packagist/v/omega-mvc/serializable-closure.svg" alt="Packagist Version"></a>
@@ -202,17 +202,17 @@ These components work in concert to provide a robust, secure, and flexible solut
 
 ## Testing
 
-The test suite runs on [Pest](https://pestphp.com):
+The test suite runs on [PHPUnit](https://phpunit.de):
 
 ```sh
 composer test
 ```
 
-Tests live in `tests/` (PSR-4 `Tests\`), with the suite configuration in `phpunit.xml` — Pest reads PHPUnit's configuration. To run a single file or filter:
+Tests live in `tests/` (PSR-4 `Tests\`), with the suite configuration in `phpunit.xml.dist`. To run a single file or filter:
 
 ```sh
-vendor/bin/pest tests/Unit/SerializableClosureTest.php
-vendor/bin/pest --filter=round-trips
+vendor/bin/phpunit tests/Unit/SerializableClosureTest.php
+vendor/bin/phpunit --filter=round-trips
 ```
 
 ### Stress Testing
@@ -220,12 +220,12 @@ vendor/bin/pest --filter=round-trips
 The suite includes stress tests that execute serialization/deserialization cycles in a tight loop to detect memory leaks and resource accumulation. Stress tests are grouped under the `stress` group and can be targeted explicitly:
 
 ```sh
-vendor/bin/pest --group=stress
+vendor/bin/phpunit --group=stress
 ```
 
 #### Iteration budget
 
-The number of iterations per stress test is resolved at runtime by `Tests\TestCase::stressIterations()`. Because it reads the environment inside the test body — where the `<env>` variables declared in `phpunit.xml.dist` have already been applied — it behaves correctly whether the suite is launched by Pest with the config file or standalone:
+The number of iterations per stress test is resolved at runtime by `Tests\TestCase::stressIterations()`. Because it reads the environment inside the test body — where the `<env>` variables declared in `phpunit.xml.dist` have already been applied — it behaves correctly whether the suite is launched by PHPUnit with the config file or standalone:
 
 | Condition | Iterations |
 |-----------|------------|
@@ -239,7 +239,7 @@ Stress tests are **skipped automatically** when the iteration budget is ≤ 1.
 To override the automatic selection, export `OMEGA_STRESS_ITERATIONS` before running the suite (or set it via `<env>` in `phpunit.xml.dist`):
 
 ```sh
-OMEGA_STRESS_ITERATIONS=500 vendor/bin/pest --group=stress
+OMEGA_STRESS_ITERATIONS=500 vendor/bin/phpunit --group=stress
 ```
 
 In CI environments the budget is reduced automatically (100 iterations) to keep pipeline times short. Locally the default is 10 000 iterations for thorough leak detection.
@@ -257,7 +257,7 @@ In CI environments the budget is reduced automatically (100 iterations) to keep 
 Coverage requires Xdebug (`xdebug.mode=coverage`) or PCOV:
 
 ```sh
-XDEBUG_MODE=coverage vendor/bin/pest --coverage
+XDEBUG_MODE=coverage vendor/bin/phpunit --coverage
 ```
 
 The run generates an HTML report (lines, branches and paths) in
@@ -322,25 +322,23 @@ Two are classic PHPStan false positives:
 
 #### By-reference mutation false positives
 
-The `pest-plugin-phpstan` rules also report five `pest.expectation.impossible`
-errors in `NativeTest.php`, suppressed inline. These are false positives caused
-by pass-by-reference mutation through `ReflectionMethod::invokeArgs()`: PHPStan
-cannot track types changed in place through a reflected, by-reference call, so
-it evaluates each assertion against the *pre-mutation* static type. At runtime
-the values are concrete and the assertions are valid:
+The former `pest-plugin-phpstan` rules reported five
+`pest.expectation.impossible` errors in `NativeTest.php` for assertions whose
+value had been mutated in place through `ReflectionMethod::invokeArgs()`:
+PHPStan evaluated each assertion against the *pre-mutation* static type instead
+of the runtime value. The Pest plugin rule no longer exists after the migration
+to PHPUnit, and core PHPStan (with PHPUnit's `assertInstanceOf()` /
+`assertSame()`) does not reproduce the false positive, so the five inline
+suppressions were removed. The assertions themselves remain the core behavioral
+checks for closure/self-reference resolution:
 
-| Line | Setup type (static) | Runtime value asserted | What the test really verifies |
-|------|---------------------|------------------------|-------------------------------|
-| `322` | `Closure` (inferred) | `DateTimeImmutable` | Non-closure `use` values are left untouched by `mapByReference`. |
-| `353` | `Closure` (inferred) | `Native` | The same captured closure maps to a single shared `Native` wrapper. |
-| `388` | `SelfReference` | `Closure` | `mapPointers` resolves a self-reference into the actual closure. |
-| `441` | `SelfReference` | `Closure` | `mapPointersValue` resolves a `SelfReference` inside a nested array. |
-| `461` | `SelfReference` | `Closure` | `mapPointersValue` resolves a `SelfReference` inside a `stdClass`. |
-
-These five assertions are the core behavioral checks for closure/self-reference
-resolution, so they are kept verbatim and only the static-analysis noise is
-suppressed. These suppressions are expected to be removed once PHPStan can
-reason about by-reference mutation through reflected `invokeArgs()` calls.
+| Setup type (static) | Runtime value asserted | What the test really verifies |
+|---------------------|------------------------|-------------------------------|
+| `Closure` (inferred) | `Native` | `mapByReference` replaces a captured closure with a `Native` wrapper. |
+| `Closure` (inferred) | `DateTimeImmutable` | Non-closure `use` values are left untouched by `mapByReference`. |
+| `SelfReference` | `Closure` | `mapPointers` resolves a self-reference into the actual closure. |
+| `SelfReference` | `Closure` | `mapPointersValue` resolves a `SelfReference` inside a nested array. |
+| `SelfReference` | `Closure` | `mapPointersValue` resolves a `SelfReference` inside a `stdClass`. |
 
 ### PHP Limitations
 

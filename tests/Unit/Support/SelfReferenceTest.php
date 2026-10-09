@@ -13,20 +13,29 @@
 
 declare(strict_types=1);
 
+namespace Tests\Unit\Support;
+
+use Exception;
 use Omega\SerializableClosure\Support\SelfReference;
+use Tests\TestCase;
 
-test('it exposes the given hash', function () {
-    $reference = new SelfReference('abc123');
+final class SelfReferenceTest extends TestCase
+{
+    public function testItExposesTheGivenHash(): void
+    {
+        $reference = new SelfReference('abc123');
 
-    expect($reference->hash)->toBe('abc123');
-});
-
-test('it round-trips through serialization', function () {
-    $restored = unserialize(serialize(new SelfReference('deadbeef')));
-
-    if (! $restored instanceof SelfReference) {
-        throw new Exception('Unexpected restored type.');
+        $this->assertSame('abc123', $reference->hash);
     }
 
-    expect($restored->hash)->toBe('deadbeef');
-});
+    public function testItRoundTripsThroughSerialization(): void
+    {
+        $restored = unserialize(serialize(new SelfReference('deadbeef')));
+
+        if (! $restored instanceof SelfReference) {
+            throw new Exception('Unexpected restored type.');
+        }
+
+        $this->assertSame('deadbeef', $restored->hash);
+    }
+}

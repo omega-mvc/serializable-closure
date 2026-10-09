@@ -15,16 +15,57 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use Omega\SerializableClosure\Serializers\Native;
+use Omega\SerializableClosure\Serializers\Signed;
 use PHPUnit\Framework\TestCase as BaseTestCase;
 
 abstract class TestCase extends BaseTestCase
 {
     /**
+     * Resets the process-global serializer state between tests.
+     *
+     * Signed::$signer, Native::$transformUseVariables and
+     * Native::$resolveUseVariables are static and would otherwise leak from one
+     * test to the next (the Pest expectations used to catch their exceptions,
+     * letting the trailing clean-up statements run).
+     */
+    protected function tearDown(): void
+    {
+        Signed::$signer = null;
+        Native::$transformUseVariables = null;
+        Native::$resolveUseVariables = null;
+
+        parent::tearDown();
+    }
+
+    /**
+     * Asserts that the given callback throws an exception of the expected class.
+     *
+     * PHPUnit has no core assertThrows(); this keeps multi-throw assertions
+     * expressible inside a single test method.
+     *
+     * @param class-string<\Throwable> $expectedException Holds the expected exception class.
+     * @param callable(): mixed        $callback          Holds the callback that must throw.
+     * @return void
+     */
+    protected function assertThrows(string $expectedException, callable $callback): void
+    {
+        try {
+            $callback();
+        } catch (\Throwable $throwable) {
+            $this->assertInstanceOf($expectedException, $throwable);
+
+            return;
+        }
+
+        $this->fail(sprintf('Expected %s to be thrown.', $expectedException));
+    }
+
+    /**
      * Resolves the stress-test iteration budget.
      *
      * The value is read from OMEGA_STRESS_ITERATIONS at call time so that the
-     * env vars declared in phpunit.xml.dist (applied only after the Pest
-     * bootstrap has run) are honoured:
+     * env vars declared in phpunit.xml.dist are honoured:
      *
      *   • OMEGA_STRESS_ITERATIONS set (positive int) → value as-is
      *   • OMEGA_TEST_MODE = "light"                →      10

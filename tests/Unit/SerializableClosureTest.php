@@ -13,12 +13,17 @@
 
 declare(strict_types=1);
 
+namespace Tests\Unit;
+
+use Closure;
+use Exception;
 use Omega\SerializableClosure\Exception\MissingSecretKeyException;
 use Omega\SerializableClosure\Serializers\Native;
 use Omega\SerializableClosure\Serializers\Signed;
 use Omega\SerializableClosure\SerializableClosure;
 use Omega\SerializableClosure\Signers\Hmac;
 use Omega\SerializableClosure\UnsignedSerializableClosure;
+use Tests\TestCase;
 
 /*
 |--------------------------------------------------------------------------
@@ -31,132 +36,150 @@ use Omega\SerializableClosure\UnsignedSerializableClosure;
 |
 */
 
-test('it serializes an unsigned serializable closure', function () {
-    $serialized = serialize(new UnsignedSerializableClosure(fn (int $a): int => $a + 1));
+final class SerializableClosureTest extends TestCase
+{
+    public function testItSerializesAnUnsignedSerializableClosure(): void
+    {
+        $serialized = serialize(new UnsignedSerializableClosure(fn (int $a): int => $a + 1));
 
-    expect($serialized)->not->toBeEmpty();
-});
-
-test('it uses native serialization without a secret key', function () {
-    SerializableClosure::setSecretKey(null);
-    expect(Signed::$signer)->toBeNull();
-
-    $serialized = serialize(new SerializableClosure(fn (): int => 42));
-
-    expect($serialized)->not->toBeEmpty();
-});
-
-test('it signs serialization when a secret key is set', function () {
-    SerializableClosure::setSecretKey('secret-key');
-    expect(Signed::$signer)->toBeInstanceOf(Hmac::class);
-
-    $serialized = serialize(new SerializableClosure(fn (): int => 7));
-
-    expect($serialized)->toContain('hash');
-});
-
-test('it clears the signer when the secret key is removed', function () {
-    SerializableClosure::setSecretKey('secret-key');
-    expect(Signed::$signer)->not()->toBeNull();
-
-    SerializableClosure::setSecretKey(null);
-    expect(Signed::$signer)->toBeNull();
-});
-
-test('it throws missing secret key exception when key is unset before signed serialize', function () {
-    SerializableClosure::setSecretKey('secret-key');
-
-    $serializable = new SerializableClosure(fn (): int => 1);
-
-    SerializableClosure::setSecretKey(null);
-
-    expect(fn () => serialize($serializable))->toThrow(MissingSecretKeyException::class);
-});
-
-test('it round-trips an unsigned closure', function () {
-    $y = 10;
-
-    $closure = fn (int $a): int => $a + $y + 1;
-
-    $restored = unserialize(serialize(new SerializableClosure($closure)));
-
-    if (! $restored instanceof SerializableClosure) {
-        throw new Exception('Restored value is not a SerializableClosure.');
+        $this->assertNotEmpty($serialized);
     }
 
-    expect($restored(41))->toBe(52);
-});
+    public function testItUsesNativeSerializationWithoutASecretKey(): void
+    {
+        SerializableClosure::setSecretKey(null);
+        $this->assertNull(Signed::$signer);
 
-test('it round-trips a signed closure and verifies the signature', function () {
-    SerializableClosure::setSecretKey('secret-key');
+        $serialized = serialize(new SerializableClosure(fn (): int => 42));
 
-    $payload = serialize(new SerializableClosure(fn (int $x): int => $x * 3));
-
-    $restored = unserialize($payload);
-
-    SerializableClosure::setSecretKey(null);
-
-    if (! $restored instanceof SerializableClosure) {
-        throw new Exception('Restored value is not a SerializableClosure.');
+        $this->assertNotEmpty($serialized);
     }
 
-    expect($restored(4))->toBe(12);
-});
+    public function testItSignsSerializationWhenASecretKeyIsSet(): void
+    {
+        SerializableClosure::setSecretKey('secret-key');
+        $this->assertInstanceOf(Hmac::class, Signed::$signer);
 
-test('loading a signed payload without a key is rejected fail-closed', function () {
-    SerializableClosure::setSecretKey('k');
-    $payload = serialize(new SerializableClosure(fn (): int => 5));
-    SerializableClosure::setSecretKey(null);
+        $serialized = serialize(new SerializableClosure(fn (): int => 7));
 
-    expect(fn () => unserialize($payload))->toThrow(MissingSecretKeyException::class);
-});
+        $this->assertStringContainsString('hash', $serialized);
+    }
 
-test('its payload carries only the serializable component', function () {
-    $data = (new SerializableClosure(fn (): int => 1))->__serialize();
+    public function testItClearsTheSignerWhenTheSecretKeyIsRemoved(): void
+    {
+        SerializableClosure::setSecretKey('secret-key');
+        $this->assertNotNull(Signed::$signer);
 
-    expect(array_keys($data))->toBe(['serializable']);
-});
+        SerializableClosure::setSecretKey(null);
+        $this->assertNull(Signed::$signer);
+    }
 
-test('the unsigned factory builds an unsigned wrapper around the closure', function () {
-    $closure = fn (): int => 7;
+    public function testItThrowsMissingSecretKeyExceptionWhenKeyIsUnsetBeforeSignedSerialize(): void
+    {
+        SerializableClosure::setSecretKey('secret-key');
 
-    $unsigned = SerializableClosure::unsigned($closure);
+        $serializable = new SerializableClosure(fn (): int => 1);
 
-    expect($unsigned->getClosure())->toBe($closure)
-        ->and($unsigned())->toBe(7);
-});
+        SerializableClosure::setSecretKey(null);
 
-test('it forwards arguments to the underlying serializer when invoked', function () {
-    $serializable = new SerializableClosure(fn (int $a, int $b): int => $a - $b);
+        $this->expectException(MissingSecretKeyException::class);
+        serialize($serializable);
+    }
 
-    expect($serializable(10, 4))->toBe(6);
-});
+    public function testItRoundTripsAnUnsignedClosure(): void
+    {
+        $y = 10;
 
-test('extension hooks can be set and cleared', function () {
-    SerializableClosure::transformUseVariablesUsing(fn (array $vars): array => $vars);
-    SerializableClosure::resolveUseVariablesUsing(fn (array $vars): array => $vars);
+        $closure = fn (int $a): int => $a + $y + 1;
 
-    expect(Native::$transformUseVariables)->toBeInstanceOf(Closure::class)
-        ->and(Native::$resolveUseVariables)->toBeInstanceOf(Closure::class);
+        $restored = unserialize(serialize(new SerializableClosure($closure)));
 
-    SerializableClosure::transformUseVariablesUsing(null);
-    SerializableClosure::resolveUseVariablesUsing(null);
+        if (! $restored instanceof SerializableClosure) {
+            throw new Exception('Restored value is not a SerializableClosure.');
+        }
 
-    expect(Native::$transformUseVariables)->toBeNull()
-        ->and(Native::$resolveUseVariables)->toBeNull();
-});
+        $this->assertSame(52, $restored(41));
+    }
 
-test('transform hook results are filtered down to their string-keyed entries', function () {
-    SerializableClosure::transformUseVariablesUsing(
-        fn (array $vars): \ArrayIterator => new \ArrayIterator([
-            'kept'   => $vars['in'],
-            3        => 'integer key is dropped',
-        ])
-    );
+    public function testItRoundTripsASignedClosureAndVerifiesTheSignature(): void
+    {
+        SerializableClosure::setSecretKey('secret-key');
 
-    expect(Native::applyTransformHook(['in' => 'v']))->toBe(['kept' => 'v']);
+        $payload = serialize(new SerializableClosure(fn (int $x): int => $x * 3));
 
-    SerializableClosure::transformUseVariablesUsing(null);
+        $restored = unserialize($payload);
 
-    expect(Native::$transformUseVariables)->toBeNull();
-});
+        SerializableClosure::setSecretKey(null);
+
+        if (! $restored instanceof SerializableClosure) {
+            throw new Exception('Restored value is not a SerializableClosure.');
+        }
+
+        $this->assertSame(12, $restored(4));
+    }
+
+    public function testLoadingASignedPayloadWithoutAKeyIsRejectedFailClosed(): void
+    {
+        SerializableClosure::setSecretKey('k');
+        $payload = serialize(new SerializableClosure(fn (): int => 5));
+        SerializableClosure::setSecretKey(null);
+
+        $this->expectException(MissingSecretKeyException::class);
+        unserialize($payload);
+    }
+
+    public function testItsPayloadCarriesOnlyTheSerializableComponent(): void
+    {
+        $data = (new SerializableClosure(fn (): int => 1))->__serialize();
+
+        $this->assertSame(['serializable'], array_keys($data));
+    }
+
+    public function testTheUnsignedFactoryBuildsAnUnsignedWrapperAroundTheClosure(): void
+    {
+        $closure = fn (): int => 7;
+
+        $unsigned = SerializableClosure::unsigned($closure);
+
+        $this->assertSame($closure, $unsigned->getClosure());
+        $this->assertSame(7, $unsigned());
+    }
+
+    public function testItForwardsArgumentsToTheUnderlyingSerializerWhenInvoked(): void
+    {
+        $serializable = new SerializableClosure(fn (int $a, int $b): int => $a - $b);
+
+        $this->assertSame(6, $serializable(10, 4));
+    }
+
+    public function testExtensionHooksCanBeSetAndCleared(): void
+    {
+        SerializableClosure::transformUseVariablesUsing(fn (array $vars): array => $vars);
+        SerializableClosure::resolveUseVariablesUsing(fn (array $vars): array => $vars);
+
+        $this->assertInstanceOf(Closure::class, Native::$transformUseVariables);
+        $this->assertInstanceOf(Closure::class, Native::$resolveUseVariables);
+
+        SerializableClosure::transformUseVariablesUsing(null);
+        SerializableClosure::resolveUseVariablesUsing(null);
+
+        $this->assertNull(Native::$transformUseVariables);
+        $this->assertNull(Native::$resolveUseVariables);
+    }
+
+    public function testTransformHookResultsAreFilteredDownToTheirStringKeyedEntries(): void
+    {
+        SerializableClosure::transformUseVariablesUsing(
+            fn (array $vars): \ArrayIterator => new \ArrayIterator([
+                'kept' => $vars['in'],
+                3      => 'integer key is dropped',
+            ])
+        );
+
+        $this->assertSame(['kept' => 'v'], Native::applyTransformHook(['in' => 'v']));
+
+        SerializableClosure::transformUseVariablesUsing(null);
+
+        $this->assertNull(Native::$transformUseVariables);
+    }
+}
